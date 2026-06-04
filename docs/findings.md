@@ -64,3 +64,42 @@ Each load-bearing claim was independently checked on disk:
 
 - the human visual gate (a person eyeballs the annotated PDFs);
 - the pre-existing `web.md` docs-parity drift (a "which copy is canonical" decision).
+
+## 2026-06-04 — Operator performance review (run 1). Grade: B / works-with-caveats
+
+The run produced a correct outcome but needed human/leader improvisation three times;
+a less attentive operator could have shipped a false green or stalled. New/sharpened
+findings beyond the four above:
+
+5. **Reviewer hung on a background wait for a gate that doesn't exist.** The first
+   reviewer spawned a *background task* "waiting for pytest summary" — but a parser
+   feature has no pytest. It never wrote its review file; ~16 min / 57k tokens wasted,
+   required a full re-dispatch.
+   → Fix: reviewer runs gates in the **foreground**, never backgrounds a wait; the
+   parser gate profile must say "foreground scripts, not pytest." (Applied to
+   `roles/reviewer.role.yaml` + `examples/sella-cruce/profile.yaml`.)
+
+6. **The leader cannot recover a stalled subagent.** Its toolset has no
+   `SendMessage`; when the reviewer hung, the only option was re-dispatch (discarding
+   the hung run's work). Resume was implied but not possible.
+   → Fix: the leader does **not** promise resume — on a stall it **re-dispatches
+   fresh**, which is cheap precisely because handoff is on disk (the new agent reads
+   state and continues, losing nothing). (Applied to `roles/leader.role.yaml`.)
+
+7. **Delta-based mechanical gates** (sharpens finding #3). docs-parity was RED before
+   the feature; treated as absolute pass/fail it would block *every* future feature in
+   this repo. The reviewer's manual stash-and-rerun (red-before ∧ red-after ⇒
+   pre-existing ⇒ not this feature's fault) should be the **harness's automated
+   behavior**, not human improvisation.
+   → Fix: mechanical gates are evaluated as a **delta**. (Applied to
+   `methodologies/sdd/methodology.md` gate classes + the profile's docs-parity entry.)
+
+8. **Parity ≠ truth.** `docs-sync` passes when both doc copies are identically *wrong*
+   (`parsers.md` still says "7 active parsers"; it's now 8). The check validates
+   consistency, not correctness — a reminder that a green mechanical gate bounds, but
+   does not guarantee, correctness.
+
+Run metrics: 1 spec_author (~40k tok), 1 implementer (~56k tok, 52 tools), 2 reviewers
+(1 hung, 1 clean), 2 human gates (spec approval, visual). 1 false start, 0 incorrect
+outcomes shipped. Highest-leverage fix: **#7 delta gates** — without it this repo's
+harness is blocked by unrelated drift on every feature.

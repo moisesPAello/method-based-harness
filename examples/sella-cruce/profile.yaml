@@ -28,7 +28,9 @@ docs:
 # below are run by the drivers, not hooks.
 constitution:
   - {id: no-fabricated-year, class: mechanical,    check: "no datetime.now().year; incomplete dates kept as text"}
-  - {id: docs-parity,        class: mechanical,    check: "python .github/scripts/check_docs_sync.py (exit 0)"}
+  # Finding #7 (delta gates): red BOTH pre- and post-feature ⇒ pre-existing drift ⇒
+  # flag, don't block. (web.md drift from commit 469f02c was red before this feature.)
+  - {id: docs-parity,        class: mechanical-delta, check: "check_docs_sync.py exit 0; if red pre AND post, pre-existing — flag not block"}
   - {id: commits-es,         class: mechanical,    check: "Conventional Commits, in Spanish"}
   - {id: money-decimal,      class: judgment+grep, check: "Decimal + ROUND_HALF_UP for money; never float"}
   - {id: module-boundaries,  class: judgment+grep, check: "no PDF I/O / fitz import inside parsers/"}
@@ -46,6 +48,8 @@ gate_profiles:
       - "CHECKPOINTS satisfied"
       - "verdict == APPROVED"
   parser:                  # parser features — pytest proves nothing; the skill workflow does
+    # Finding #5: these are FOREGROUND scripts — no pytest/async completion exists to
+    # wait on; the reviewer must NOT background-wait for one (it hung doing exactly that).
     impl_complete:
       - "structure: parsers/bancos/<bank>/{<bank>.yaml,<bank>parser.py,README.md,test_area_<bank>.py}"
       - "smoke: <interpreter> parsers/bancos/<bank>/test_area_<bank>.py  exit 0"
