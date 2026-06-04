@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "method-based-harness"
+version = "0.0.1"
+description = "Install a methodology-driven, multi-agent harness into any repo (init / upgrade)."
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+dependencies = [
+    "pyyaml>=6,<7",
+]
+
+[project.scripts]
+harness = "harness.cli:main"
+
+[tool.setuptools]
+packages = ["harness", "harness.hosts"]
+
+# The methodology/role library ships as package data so the installed tool carries
+# its own templates. Kept at repo top-level for human editing; included into the wheel.
+[tool.setuptools.package-data]
+harness = ["library/**/*"]
