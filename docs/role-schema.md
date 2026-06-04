@@ -7,7 +7,7 @@ A role splits into two parts that live in two places.
 | Answers | *what this role IS* (competence, posture) | *how it's wired into this methodology* |
 | Reusable across | every pack and project | one pack |
 | Declares | id, lens prose, posture, capabilities | the state it acts on, reads, writes, gate, next state |
-| Lives in | `roles/<id>.role.yaml` | a phase entry in `methodologies/<m>/methodology.md` |
+| Lives in | `harness/library/roles/<id>.role.yaml` | a phase entry in `harness/library/methodologies/<m>/methodology.yaml` |
 
 ## The lens (library)
 

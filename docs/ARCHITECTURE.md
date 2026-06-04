@@ -17,9 +17,9 @@ separate is the whole design — it's what makes methodology and host swappable.
 
 | Layer | Answers | Examples | Lives in |
 |---|---|---|---|
-| **Role library** | *what a worker IS* (competence + posture) | leader, spec_author, implementer, reviewer | `roles/*.role.yaml` (agnostic) |
-| **Methodology** | *the choreography* (states, gates, handoffs) | SDD, TDD, Scrum | `methodologies/<id>/methodology.md` |
-| **Project profile** | *this repo's specifics* | verify command, constitution, per-type gates | `examples/<project>/profile.yaml` (captured at init) |
+| **Role library** | *what a worker IS* (competence + posture) | leader, spec_author, implementer, reviewer | `harness/library/roles/*.role.yaml` (agnostic) |
+| **Methodology** | *the choreography* (states, gates, handoffs) | SDD, TDD, Scrum | `harness/library/methodologies/<id>/` |
+| **Project profile** | *this repo's specifics* | verify command, constitution, per-type gates | the target repo's `.harness/profile.yaml` (captured at init) |
 | **Host** | *the render target* | Claude Code, OpenCode, VSCode | a renderer per host |
 
 ### Why four, and why orthogonal

@@ -33,31 +33,30 @@ every host.
 
 ## Status
 
-**Design validated; the CLI is not built yet.** A hand-authored spike of the SDD
-pack was installed into a real project (`sella-cruce`) and **ran end-to-end on a
-Claude Pro subscription** — driving a real feature through
-`pending → spec_ready → ⏸ human → in_progress → in_review`, with the type-aware
-gates and the human visual gate holding under independent verification. See
-[`docs/findings.md`](docs/findings.md).
-
-This repo currently holds the **design** and the **proven content** the future CLI
-will consume and emit.
+**Design validated; CLI working; not yet published.** A hand-authored spike of the SDD
+pack ran end-to-end on a Claude Pro subscription in a real project (`sella-cruce`) —
+driving a feature through `pending → spec_ready → ⏸ human → in_progress → in_review`,
+gates holding under independent verification (see [`docs/findings.md`](docs/findings.md)).
+That proven output was then turned into the **`init`/`upgrade` CLI**: it compiles the
+bundled library + a project profile into the host's files, and `upgrade` re-renders them
+(preserving local state, pruning orphans, refusing hand-edited managed files without
+`--force`). The library ships inside the wheel, so the tool carries it when installed.
 
 ## Layout
 
 | Path | What |
 |---|---|
+| `harness/{cli,compile,manifest}.py`, `harness/hosts/claude.py` | the `init`/`upgrade` CLI + compiler + Claude renderer |
+| `harness/library/roles/*.role.yaml` | agnostic role lenses (competence + posture) |
+| `harness/library/methodologies/<id>/` | states + gates + phases (the choreography) |
+| `harness/library/examples/sella-cruce/` | a real, proven project profile (also the selftest fixture) |
 | `docs/ARCHITECTURE.md` | the four layers, the init/compile flow, N+M |
 | `docs/methodology-authoring.md` | the pack contract: 4 things, gate classes, the hard-gate rule |
 | `docs/role-schema.md` | lens vs binding; how a role compiles to a host agent |
 | `docs/findings.md` | learning log — the sella-cruce run and what it taught |
-| `roles/*.role.yaml` | agnostic role lenses (competence + posture) |
-| `methodologies/<id>/methodology.md` | states + gates + phases (the choreography) |
-| `examples/sella-cruce/` | a real, proven project profile |
 
 ## Next
 
-1. Take the proven spike (`examples/sella-cruce/` + the live branch
-   `harness/sdd-banregio` in the sella-cruce repo) as a known-good input→output pair
-   and extract the `init` generator.
-2. Fold the four findings (`docs/findings.md`) into the profile schema.
+1. Validate `upgrade` on the real `sella-cruce` repo (adopt the hand-authored spike → upgrade).
+2. Finish the banregio feature through `in_review → done`.
+3. Publish so `uv tool install method-based-harness` works end to end.

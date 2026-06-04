@@ -122,6 +122,15 @@ def cmd_init(args: argparse.Namespace) -> int:
             out(p)
         return EX_OK
 
+    # Protect pre-existing files (adoption of a repo with no manifest): don't clobber silently.
+    clash = [rel for rel in result.files if (root / rel).exists()]
+    if clash and not args.force:
+        log("init: these files already exist — refusing to overwrite without --force:")
+        for rel in sorted(clash):
+            log(f"  {rel}")
+        log("Re-run with --force to adopt/overwrite them.")
+        return EX_FAIL
+
     for rel, content in result.files.items():
         _write(root, rel, content)
     _write(root, ".harness/profile.yaml", prof_path.read_text())

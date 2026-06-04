@@ -29,11 +29,13 @@ HOSTS = {"claude": claude.render}
 
 
 def library_root() -> Path:
-    """Where roles/ and methodologies/ live. Env override, else the repo root (dev)."""
+    """Where roles/ and methodologies/ live. Env override, else the bundled package data
+    (`harness/library/`) so the tool carries its library when installed anywhere."""
     env = os.environ.get("HARNESS_LIBRARY")
     if env:
         return Path(env)
-    return Path(__file__).resolve().parent.parent
+    from importlib.resources import files
+    return Path(str(files("harness"))) / "library"
 
 
 def load_roles(root: Path) -> dict[str, dict]:
