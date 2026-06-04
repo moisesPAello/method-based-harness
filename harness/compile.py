@@ -1,19 +1,88 @@
-"""Compiler: library (lens) + methodology (binding) + project profile -> host files.
+"""Compiler: library (role lenses) + methodology (binding) + project profile -> host files.
 
-This is the part the old harness never had — `init`/`upgrade` are not file-copy, they
-RENDER. Not implemented yet; the surface (cli.py) lands first.
-
-Planned shape:
-    render(methodology, profile, host) -> dict[path, content]
-where the host renderer (hosts/<host>.py) maps:
-  - role posture -> host toolset (mutates -> +write tools; context:fresh -> subagent)
-  - lens prose + binding (reads/writes/gate/transition) -> the agent body
-  - constitution mechanical gates -> host hooks
-  - the orchestrator role -> the merged instruction block
+`init`/`upgrade` are not file-copy — they RENDER. This module loads the library and
+dispatches to a host renderer (hosts/<host>.py), which returns a RenderResult.
 """
 
 from __future__ import annotations
 
+import os
+from dataclasses import dataclass, field
+from pathlib import Path
 
-def render(methodology: str, profile: dict, host: str) -> dict[str, str]:
-    raise NotImplementedError("compiler not built yet")
+import yaml
+
+from .hosts import claude
+
+
+@dataclass
+class RenderResult:
+    # MANAGED files: relpath (from repo root) -> content. Overwritten on upgrade.
+    files: dict[str, str] = field(default_factory=dict)
+    # The orchestrator block to MERGE into the host instruction file (not a plain write).
+    block_path: str = ""
+    block_text: str = ""
+    block_markers: tuple[str, str] = ("", "")
+
+
+HOSTS = {"claude": claude.render}
+
+
+def library_root() -> Path:
+    """Where roles/ and methodologies/ live. Env override, else the repo root (dev)."""
+    env = os.environ.get("HARNESS_LIBRARY")
+    if env:
+        return Path(env)
+    return Path(__file__).resolve().parent.parent
+
+
+def load_roles(root: Path) -> dict[str, dict]:
+    roles: dict[str, dict] = {}
+    for f in sorted((root / "roles").glob("*.role.yaml")):
+        d = yaml.safe_load(f.read_text())
+        roles[d["id"]] = d
+    return roles
+
+
+def load_methodology(root: Path, mid: str) -> dict:
+    f = root / "methodologies" / mid / "methodology.yaml"
+    if not f.is_file():
+        raise FileNotFoundError(f"no methodology '{mid}' (looked for {f})")
+    return yaml.safe_load(f.read_text())
+
+
+def library_doc(root: Path, mid: str, name: str) -> str:
+    """Read a methodology's human doc (methodology.md, CHECKPOINTS.md). '' if absent."""
+    f = root / "methodologies" / mid / name
+    return f.read_text() if f.is_file() else ""
+
+
+def list_library(root: Path) -> dict[str, list[str]]:
+    meths = [
+        p.name for p in sorted((root / "methodologies").glob("*"))
+        if (p / "methodology.yaml").is_file()
+    ]
+    return {"methodologies": meths, "hosts": sorted(HOSTS), "roles": sorted(load_roles(root))}
+
+
+def render(methodology_id: str, profile: dict, host: str, root: Path | None = None) -> RenderResult:
+    root = root or library_root()
+    if host not in HOSTS:
+        raise ValueError(f"unknown host '{host}' (have: {', '.join(sorted(HOSTS))})")
+    meth = load_methodology(root, methodology_id)
+    roles = load_roles(root)
+    docs = {
+        "methodology.md": library_doc(root, methodology_id, "methodology.md"),
+        "CHECKPOINTS.md": library_doc(root, methodology_id, "CHECKPOINTS.md"),
+    }
+    return HOSTS[host](meth, roles, profile, docs)
+
+
+def merge_block(existing: str, block: str, begin: str, end: str) -> str:
+    """Idempotently insert/replace a marked block. Never clobbers surrounding content."""
+    if begin in existing and end in existing:
+        head = existing[: existing.index(begin)]
+        tail = existing[existing.index(end) + len(end):]
+        return head + block + tail
+    sep = "" if existing.endswith("\n") or not existing else "\n"
+    return existing + sep + "\n" + block + "\n"

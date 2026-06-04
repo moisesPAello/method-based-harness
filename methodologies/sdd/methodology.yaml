@@ -1,0 +1,54 @@
+# Structured binding for SDD — what the compiler reads (the prose lives in methodology.md).
+# Project-agnostic: per-type gates, verify, constitution, interpreter come from the profile.
+id: sdd
+name: Spec-Driven Development
+shape: linear
+orchestrator: leader          # the role the host session is locked to
+
+states: [pending, spec_ready, in_progress, in_review, done, blocked]
+
+gates:
+  spec_complete:
+    class: mechanical
+    checks:
+      - "the 3 spec files exist (requirements.md, design.md, tasks.md)"
+      - "requirements are EARS with stable R<n> ids"
+      - "every T<n> cites >=1 R<n>; every acceptance item maps to >=1 R<n>"
+  human_approved:
+    class: human
+    checks: ["a human writes 'approved' for the feature"]
+  impl_complete:
+    class: per-type            # resolved from profile.gate_profiles[<type>].impl_complete
+  review_passed:
+    class: per-type            # resolved from profile.gate_profiles[<type>].review_passed
+
+phases:
+  - state: pending
+    driver: spec_author
+    reads:  ["feature_list.json", "docs"]
+    writes: ["specs/<feature>/requirements.md", "specs/<feature>/design.md", "specs/<feature>/tasks.md"]
+    gate:   spec_complete
+    to:     spec_ready
+    then:   halt
+  - state: spec_ready
+    driver: human
+    gate:   human_approved
+    to:     in_progress
+  - state: in_progress
+    driver: implementer
+    reads:  ["specs/<feature>", "docs"]
+    writes: ["source", "tests", "progress/impl_<feature>.md"]
+    gate:   impl_complete
+    to:     in_review
+  - state: in_review
+    driver: reviewer
+    reads:  ["specs/<feature>", "progress/impl_<feature>.md", "source", "CHECKPOINTS.md"]
+    writes: ["progress/review_<feature>.md"]
+    gate:   review_passed
+    to:     done
+    on_reject: in_progress
+
+escalation:
+  trivial: [spec_author, implementer]
+  normal:  [spec_author, implementer, reviewer]
+  complex: [explorer, spec_author, implementer, reviewer]
