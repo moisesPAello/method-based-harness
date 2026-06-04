@@ -34,6 +34,16 @@ def load(root: Path) -> dict[str, str]:
         return {}
 
 
+def load_meta(root: Path) -> dict:
+    p = root / MANIFEST_REL
+    if not p.is_file():
+        return {}
+    try:
+        return json.loads(p.read_text()).get("meta", {})
+    except (ValueError, OSError):
+        return {}
+
+
 def save(root: Path, managed: dict[str, str], meta: dict) -> None:
     p = root / MANIFEST_REL
     p.parent.mkdir(parents=True, exist_ok=True)

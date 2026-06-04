@@ -128,7 +128,7 @@ def cmd_init(args: argparse.Namespace) -> int:
     local = _scaffold_local(root, profile)
     _apply_block(root, result)
     managed = {rel: manifest.hash_text(c) for rel, c in result.files.items()}
-    manifest.save(root, managed, {"methodology": args.methodology, "host": args.host})
+    manifest.save(root, managed, {"methodology": args.methodology, "host": args.host, "tool_version": __version__})
 
     for p in sorted(result.files) + [".harness/profile.yaml", *local, result.block_path]:
         out(p)
@@ -149,18 +149,36 @@ def cmd_upgrade(args: argparse.Namespace) -> int:
 
     result = _compile.render(methodology, profile, host)
     prior = manifest.load(root)
+    prior_version = manifest.load_meta(root).get("tool_version")
+    if prior_version and prior_version != __version__:
+        log(f"upgrade: this repo was last rendered by harness {prior_version}; running {__version__}.")
 
     buckets: dict[str, list[str]] = {"new": [], "update": [], "unchanged": [], "conflict": []}
     for rel, content in result.files.items():
         buckets[manifest.classify(root, rel, content, prior)].append(rel)
+
+    # Orphans: files managed before but absent from the new render (e.g. a role removed
+    # from the roster). Prune them; keep one that was hand-edited unless --force.
+    removes, removes_edited = [], []
+    for rel in prior:
+        if rel in result.files:
+            continue
+        target = root / rel
+        if not target.exists():
+            continue
+        (removes if manifest.hash_file(target) == prior[rel] else removes_edited).append(rel)
 
     if args.dry_run:
         log(f"[dry-run] upgrade {methodology} × {host} in {root}")
         for kind in ("new", "update", "conflict"):
             for rel in sorted(buckets[kind]):
                 out(f"{kind:9} {rel}")
-        log(f"new={len(buckets['new'])} update={len(buckets['update'])} "
-            f"conflict={len(buckets['conflict'])} unchanged={len(buckets['unchanged'])}")
+        for rel in sorted(removes):
+            out(f"remove    {rel}")
+        for rel in sorted(removes_edited):
+            out(f"remove?   {rel}  (orphaned + hand-edited; kept unless --force)")
+        log(f"new={len(buckets['new'])} update={len(buckets['update'])} conflict={len(buckets['conflict'])} "
+            f"remove={len(removes)} remove?={len(removes_edited)} unchanged={len(buckets['unchanged'])}")
         return EX_OK
 
     if buckets["conflict"] and not args.force:
@@ -175,13 +193,24 @@ def cmd_upgrade(args: argparse.Namespace) -> int:
         if kind in ("new", "update") or (kind == "conflict" and args.force):
             _write(root, rel, content)
             changed.append(rel)
+    for rel in removes:
+        (root / rel).unlink()
+        changed.append(f"(removed) {rel}")
+    for rel in removes_edited:
+        if args.force:
+            (root / rel).unlink()
+            changed.append(f"(removed) {rel}")
+        else:
+            log(f"orphaned but hand-edited, kept: {rel}  (use --force to remove)")
+
     _apply_block(root, result)
     managed = {rel: manifest.hash_text(c) for rel, c in result.files.items()}
-    manifest.save(root, managed, {"methodology": methodology, "host": host})
+    manifest.save(root, managed, {"methodology": methodology, "host": host, "tool_version": __version__})
 
     for rel in sorted(changed):
         out(rel)
-    log(f"upgrade: {len(changed)} file(s) re-rendered; local state preserved.")
+    n_rm = sum(1 for c in changed if c.startswith("(removed)"))
+    log(f"upgrade: {len(changed) - n_rm} re-rendered, {n_rm} removed; local state preserved.")
     return EX_OK
 
 
@@ -212,8 +241,24 @@ def cmd_selftest(args: argparse.Namespace) -> int:
 
 # --- parser -----------------------------------------------------------------------
 
+UPDATE_EPILOG = """\
+Two updates, deliberately separate:
+  the TOOL itself   -> your package manager:   uv tool upgrade method-based-harness
+  an installed repo -> this CLI, per repo:     harness upgrade
+
+`harness upgrade` re-renders from the library bundled in the INSTALLED tool, so update
+the tool first, then run `harness upgrade` in each repo. (There is no `harness update`;
+`upgrade` already means re-render-this-repo.)
+"""
+
+
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(prog="harness", description="Install a methodology-driven multi-agent harness into a repo.")
+    p = argparse.ArgumentParser(
+        prog="harness",
+        description="Install a methodology-driven multi-agent harness into a repo.",
+        epilog=UPDATE_EPILOG,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     p.add_argument("--version", action="version", version=f"harness {__version__}")
     p.add_argument("-v", "--verbose", action="store_true", help="more detail on stderr")
     p.add_argument("-q", "--quiet", action="store_true", help="errors only on stderr")
