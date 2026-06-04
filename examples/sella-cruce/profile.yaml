@@ -1,0 +1,60 @@
+# Project profile — sella-cruce (PROVEN: drove banregio_promote on 2026-06-04)
+# Fills the SDD methodology's generic gate slots with this repo's specifics.
+# Captured at `harness init`. The methodology stays project-agnostic; this binds it.
+project: sella-cruce
+methodology: sdd
+host: claude
+
+# Finding #1 (docs/findings.md): capture the interpreter at init — the repo's docs
+# claimed a Windows venv but reality was "no python on PATH". Pin it so gate
+# commands are deterministic, not re-derived each session.
+interpreter: ".venv/bin/python"
+
+verify:
+  command: "pytest -q"
+  notes: >
+    pytest testpaths=["tests"] does NOT collect parser tests
+    (parsers/bancos/<bank>/test_*.py live outside tests/). It is a REGRESSION
+    guard only; parser correctness is proven by the `parser` gate profile.
+    Do NOT cite test_integration.py — docs reference it but it does not exist.
+
+docs:
+  architecture: ".claude/docs/architecture.md"
+  conventions:  ".claude/docs/cli_conventions.md"
+  sync_check:   "python .github/scripts/check_docs_sync.py"
+
+# NEVER-VIOLATE rules (from the repo's CLAUDE.md) → always-on global gates.
+# Finding #2: these compile to HOST HOOKS (type-independent). Type-specific gates
+# below are run by the drivers, not hooks.
+constitution:
+  - {id: no-fabricated-year, class: mechanical,    check: "no datetime.now().year; incomplete dates kept as text"}
+  - {id: docs-parity,        class: mechanical,    check: "python .github/scripts/check_docs_sync.py (exit 0)"}
+  - {id: commits-es,         class: mechanical,    check: "Conventional Commits, in Spanish"}
+  - {id: money-decimal,      class: judgment+grep, check: "Decimal + ROUND_HALF_UP for money; never float"}
+  - {id: module-boundaries,  class: judgment+grep, check: "no PDF I/O / fitz import inside parsers/"}
+
+# Gates differ by feature TYPE — the key finding from tuning against this repo.
+gate_profiles:
+  default:                 # cli | cruce | sella_cruce | bugfix — pytest IS the gate
+    impl_complete:
+      - "all tasks in tasks.md are [x]"
+      - "verify.command is green"
+      - "each R<n> maps to a concrete pytest test under tests/"
+    review_passed:
+      - "traceability R<n> <-> test confirmed (the test actually asserts the behavior)"
+      - "no placeholders (TODO/FIXME/pass/.../NotImplementedError) in changed src"
+      - "CHECKPOINTS satisfied"
+      - "verdict == APPROVED"
+  parser:                  # parser features — pytest proves nothing; the skill workflow does
+    impl_complete:
+      - "structure: parsers/bancos/<bank>/{<bank>.yaml,<bank>parser.py,README.md,test_area_<bank>.py}"
+      - "smoke: <interpreter> parsers/bancos/<bank>/test_area_<bank>.py  exit 0"
+      - "export: <interpreter> main.py export <sample.pdf> --bank <bank> -o <csv>  runs clean"
+      - "visual: <interpreter> -m tests.banking_analysis --test parser --visual-debug --bank <bank> --tipo cargos AND --tipo abonos produce annotated PDFs"
+      - "available = True only when functional"
+    review_passed:
+      - "skill non-negotiables: Decimal, no year invention, TextCoord traceability, no PDF I/O in parser, unified footer schema"
+      - "HUMAN VISUAL GATE: a human confirms seals legible + non-overlapping in the annotated PDFs"
+      - "promoted: bank added to README.md AND .claude/CLAUDE.md supported-banks tables"
+      - "docs parity passes (sync_check)"
+      - "verdict == APPROVED"

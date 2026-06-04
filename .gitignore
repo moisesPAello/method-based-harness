@@ -1,0 +1,12 @@
+# Python (for when the init CLI lands)
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+
+# OS / editor
+.DS_Store
+*.swp
