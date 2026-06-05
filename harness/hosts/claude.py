@@ -129,9 +129,9 @@ Implement ONE `in_progress` feature from its approved spec.
 - **Write:** {', '.join(ph.get('writes', []))}
 
 ## Gate to pass — impl_complete (per the feature's `type`)
-Resolve `gate_profiles[<type>].impl_complete` in `.harness/profile.yaml`. Different types need
-different evidence — e.g. a `parser` feature is proven by smoke + export + visual-debug, NOT pytest.
-Run those gates in the FOREGROUND.
+Resolve `gate_profiles[<type>].impl_complete` in `.harness/profile.yaml`. Different feature
+types require different evidence — run exactly the gate commands your type lists, in the
+FOREGROUND. Don't assume a particular test runner; the profile says what proves your type.
 
 ## Constitution (always): {con}
 
@@ -180,10 +180,11 @@ def _roster(meth: dict) -> list[str]:
 def _settings(profile: dict) -> str:
     sync = profile.get("docs", {}).get("sync_check")
     interp = profile.get("interpreter", "python3")
-    allow = [
-        "Bash(pytest*)",
-        f"Bash({interp} *)",
-    ]
+    allow = [f"Bash({interp} *)"]
+    verify_cmd = (profile.get("verify", {}) or {}).get("command", "")
+    verify_tok = verify_cmd.split()[0] if verify_cmd else ""
+    if verify_tok:
+        allow.append(f"Bash({verify_tok}*)")   # derived from the profile, not hardcoded
     if sync:
         allow.append(f"Bash({sync})")
     hooks: dict = {}

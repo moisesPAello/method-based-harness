@@ -56,7 +56,3 @@ feature `type`); no soft verbs.
 ## tasks.md
 Ordered `[ ] T<n> — <step>. Covers: R<a>, R<b>.` The implementer marks `[x]`; the
 reviewer rejects any `[ ]` without a documented justification.
-
----
-*Proven: this declaration drove `banregio_promote` end-to-end on sella-cruce
-(2026-06-04). See `../../docs/findings.md`.*
