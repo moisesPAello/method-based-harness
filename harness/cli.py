@@ -8,6 +8,7 @@ only external reads are the user's own repo files (for the manifest / merge).
     harness upgrade  [--dry-run] [--force]
     harness list     [methodologies|hosts|roles]
     harness status
+    harness doctor   [--no-baseline]
     harness selftest
 
 I/O: stdout is data (changed-file list, the listing), stderr is logs (progress,
@@ -332,6 +333,92 @@ def cmd_status(args: argparse.Namespace) -> int:
     return EX_OK
 
 
+def _write_baseline(root: Path, profile: dict) -> dict:
+    """Snapshot the runnable mechanical gate(s) so the reviewer can diff against a known
+    baseline (finding #3) instead of re-deriving 'pre-existing red' each feature. Today the
+    one generically-runnable gate is the profile's `docs.sync_check`. Writes LOCAL state
+    (.harness/baseline.json), never a managed file. Returns the gates dict."""
+    import json, subprocess, datetime
+    sync = (profile.get("docs") or {}).get("sync_check")
+    gates: dict = {}
+    if sync:
+        try:
+            r = subprocess.run(sync, shell=True, cwd=root, capture_output=True, timeout=120)
+            gates["docs_sync"] = {"command": sync, "exit": r.returncode, "red": r.returncode != 0}
+        except (subprocess.SubprocessError, OSError) as exc:
+            gates["docs_sync"] = {"command": sync, "error": str(exc)}
+    baseline = {"generated": datetime.datetime.now().isoformat(timespec="seconds"), "gates": gates}
+    _write(root, ".harness/baseline.json", json.dumps(baseline, indent=2) + "\n")
+    return gates
+
+
+def cmd_doctor(args: argparse.Namespace) -> int:
+    """Diagnose an installed harness: profile validity, managed-file integrity, interpreter
+    + verify resolvability, and a baseline snapshot of the runnable mechanical gate(s).
+    Read-only w.r.t. managed files; only writes local .harness/baseline.json."""
+    from . import compile as _compile, manifest, validate
+    root = Path.cwd()
+    prof_path = root / ".harness/profile.yaml"
+    if not prof_path.is_file():
+        log("doctor: not installed here (no .harness/profile.yaml). Run `init` first.")
+        return EX_FAIL
+
+    problems: list[str] = []
+    profile = _load_yaml(prof_path)
+    methodology = profile.get("methodology", "sdd")
+
+    # profile validity (same checks as init/upgrade)
+    try:
+        meth = _compile.load_methodology(_compile.library_root(), methodology)
+    except FileNotFoundError as exc:
+        log(f"doctor: {exc}")
+        return EX_FAIL
+    errs, warns = validate.validate_profile(profile, meth, features=_load_features(root))
+    for w in warns:
+        log(f"  warn: profile: {w}")
+    for e in errs:
+        log(f"  FAIL: profile: {e}")
+    problems += errs
+
+    # manifest + managed files present and matching
+    prior = manifest.load(root)
+    if not prior:
+        log("  FAIL: no manifest (.harness/.manifest.json) — install looks incomplete.")
+        problems.append("no manifest")
+    else:
+        for rel, h in prior.items():
+            t = root / rel
+            if not t.is_file():
+                log(f"  FAIL: managed file missing: {rel}")
+                problems.append(rel)
+            elif manifest.hash_file(t) != h:
+                log(f"  warn: managed file hand-edited (drift): {rel}")
+
+    # interpreter + verify resolvability (warnings — environment-dependent)
+    import shutil
+    interp = profile.get("interpreter", "python3")
+    interp_bin = interp.split()[0] if interp else ""
+    if interp_bin and not (shutil.which(interp_bin) or (root / interp_bin).exists()):
+        log(f"  warn: interpreter '{interp}' not found on PATH or in the repo")
+    vtok = ((profile.get("verify") or {}).get("command", "") or "").split()
+    if vtok and not shutil.which(vtok[0]):
+        log(f"  warn: verify command '{vtok[0]}' not found on PATH")
+
+    # baseline snapshot of the runnable mechanical gate(s)
+    if not args.no_baseline:
+        gates = _write_baseline(root, profile)
+        if gates:
+            red = [k for k, v in gates.items() if v.get("red")]
+            tail = f" — RED: {','.join(red)}" if red else ""
+            log(f"  baseline: {len(gates)} mechanical gate(s){tail} -> .harness/baseline.json")
+
+    if problems:
+        log(f"doctor: {len(problems)} problem(s) — fix the FAIL lines above.")
+        return EX_FAIL
+    log("doctor: ok.")
+    return EX_OK
+
+
 def cmd_selftest(args: argparse.Namespace) -> int:
     from . import compile as _compile
     root = _compile.library_root()
@@ -401,6 +488,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     pst = sub.add_parser("status", help="show features and their state from .harness/feature_list.json (read-only)")
     pst.set_defaults(func=cmd_status)
+
+    pd = sub.add_parser("doctor", help="diagnose an installed harness; snapshot baseline gates")
+    pd.add_argument("--no-baseline", action="store_true", help="skip running the profile's mechanical gate(s)")
+    pd.set_defaults(func=cmd_doctor)
 
     ps = sub.add_parser("selftest", help="render a bundled fixture and verify output (offline)")
     ps.set_defaults(func=cmd_selftest)
