@@ -192,3 +192,76 @@ version-string gate (`prior_version != __version__`) is informational only; prop
 driven by content hashing, so it fires even when the tool version is unchanged (as here,
 0.0.1 → 0.0.1). Both adoption and propagation paths are now also pinned by
 `tests/test_adopt_and_propagate.py`; full suite green (61 passing).
+
+## 2026-06-08 — Orchestration loop static validation (issue #6). Grade: A- / checklist passes, 3 friction points
+
+First fully automated, CLI-generated validation of the orchestration loop on a fresh install,
+using only `python3 -m harness.cli init` — no hand editing of generated files. A throwaway
+pytest-shaped repo under `/tmp` was scaffolded via `init` (first run → scaffold, fill TODOs,
+re-run → full install), then `status` and `doctor` were run. All four SDD agent files
+validated, settings inspected, and 17 regression tests added to `tests/test_orchestration_loop.py`
+(78 total, all green).
+
+### What passed (checklist from issue #6)
+
+- **CLAUDE.md block instructs leader lock-in.** `block_text` contains
+  `act as the **'leader'** agent (.claude/agents/leader.md)`, `orchestrate`, and the full flow
+  string including `⏸ HUMAN`. Pinned by `TestClaudeMdBlock`.
+- **All 4 agent files have well-formed frontmatter.** `leader`, `spec_author`, `implementer`,
+  `reviewer` all parse YAML with `name/description/tools`; descriptions are single-line.
+  Pinned by `TestAgentFrontmatter` (and pre-existing `test_every_generated_agent_frontmatter_parses_as_yaml`).
+- **Folded-in fixes appear in GENERATED agents:**
+  - reviewer.md: `foreground` (×2) + `delta` (×1) — the background-wait and delta-gate fixes.
+  - leader.md: `re-dispatch` (×2) + `wall-clock` (×2) — the stalled-subagent and bounded-gate fixes.
+  - Pinned by `TestFoldedInFixes`.
+- **SDD state machine has human-approval pause.** `phases` contains `driver: human` at
+  `spec_ready → in_progress`; the flow string shows `⏸ HUMAN`. Pinned by `TestSddStateMachine`.
+- **leader halts for human approval.** leader.md says `STOP and ask the human to approve`.
+- **`status` and `doctor` exit 0** on a fresh CLI-generated install.
+- **verify gate baseline-audited.** `init` ran `pytest -q`, recorded `baseline green (exit 0)`
+  in `.harness/baseline.json`.
+
+### Friction found (new, from CLI-generated run, not previously logged)
+
+12. **Stop hook absent from fresh-profile installs.** (issue candidate) The scaffolded profile
+    has no `docs:` section, so `settings.json` emits `"hooks": {}` — an empty hook dict, no
+    `Stop` hook. The Stop hook (docs-sync check) only fires when the profile has
+    `docs.sync_check`. A first-time operator has no signal that this exists or how to enable it.
+    The scaffold should include a commented `docs:` section with a `sync_check` TODO so the
+    operator knows the hook is conditional on filling it.
+    → Proposed fix: add `docs: {sync_check: ""}  # TODO` to `_scaffold_profile`; doc the
+    conditional wiring in the scaffold comment. (The `TestSettingsJson` suite already pins that
+    bare profiles produce `"hooks": {}`, not a broken structure.)
+
+13. **`reviewer.md` carries literal placeholder when no `docs.sync_check`.** (issue candidate)
+    When no `docs.sync_check` is in the profile, the reviewer's `## What you do` block says:
+    `incl. 'the docs/parity check'` — a hardcoded fallback string from the host renderer,
+    not an actual command. A live session would see "the docs/parity check" as the check to
+    run and fail to find it. The renderer should either omit this sentence or emit
+    `(no docs sync check configured)` when the profile field is absent.
+
+14. **`.harness/methodology.yaml` is not generated.** (issue candidate) The render emits
+    `methodology.md` (human-readable) but not `methodology.yaml` (structured). Agents or
+    tooling that want to programmatically read the state machine (phases, gates, states)
+    from an installed repo have no structured file to parse — they must either re-derive
+    from the markdown or call the library directly. The host renderer should emit
+    `methodology.yaml` alongside `methodology.md` so the structured state machine is
+    accessible from the installed repo without a library import.
+
+### What still requires a live human-driven Claude Code session (open on issue #6)
+
+The static checks above validate the generated *text* — that instructions are present and
+correct. They cannot validate that a live Claude Code session:
+- actually locks to the `leader` agent and does not drift to general-purpose mode;
+- honours the `⏸ HUMAN` halt (rather than self-advancing through spec_ready);
+- dispatches subagents via the `Agent` tool rather than inlining their work;
+- terminates gates with a real wall-clock `timeout` rather than busy-polling;
+- reads the on-disk handoff file rather than pasting content between turns.
+
+A live session is required to close issue #6 fully. The static checks here are a necessary
+but not sufficient gate.
+
+Run metrics (static): 17 new assertions, 78 total passing. Friction count: 3 new items
+(#12 Stop hook discoverability, #13 reviewer placeholder, #14 methodology.yaml absent).
+Highest-leverage: **#13** — a live reviewer would see `'the docs/parity check'` and be unable
+to run it, producing confusing output on every fresh install that lacks `docs.sync_check`.
