@@ -47,6 +47,15 @@ def validate_profile(profile, meth: dict, features: list | None = None) -> tuple
                 if not prof.get(slot):
                     errors.append(f"`gate_profiles.{name}` is missing `{slot}`")
 
+    # tracker — optional backlog-edge adapter; defaults to `none`. If set, must be a
+    # known tracker. `none` keeps the harness byte-for-byte unchanged (no network/auth).
+    tracker = profile.get("tracker")
+    if tracker is not None:
+        from .trackers import known_trackers
+        if not isinstance(tracker, str) or tracker not in known_trackers():
+            errors.append(f"`tracker` must be one of {known_trackers()} "
+                          f"(got {tracker!r}); omit it or set `tracker: none` for disk-only")
+
     # constitution — optional, but if present must be a list of entries with an `id`.
     con = profile.get("constitution")
     if con is not None and (not isinstance(con, list)
