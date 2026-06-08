@@ -159,3 +159,36 @@ Run metrics: 1 spec_author (improvised general-purpose, ~40k tok), 1 implementer
 25 tools), 1 reviewer (~36k tok, 22 tools, clean), 1 human gate (spec approval). 1 generated
 roster bug surfaced, 0 incorrect outcomes shipped. Highest-leverage fix: **#9** — a fresh
 `init` ships an agent the host won't load, breaking the very first dispatch of every SDD run.
+
+## 2026-06-08 — `upgrade` validated end-to-end against a downstream repo (issue #3)
+
+`harness upgrade` had only ever run against the selftest fixture. Driven live against a
+throwaway downstream repo (pytest-shaped, seeded from the bundled `sella-cruce` example
+profile) to prove the four contract bullets — propagation keyed off a **real** library
+delta, not a simulated hash bump:
+
+- **Stale render from an older library.** Rendered the agent pack from revision `14b55af`
+  (parent of the leader bounded-gate fix 017dd26) via `PYTHONPATH=<old-worktree>`. The
+  resulting `.claude/agents/leader.md` lacks the `wall-clock` cap language (grep count 0) —
+  a genuinely outdated compiled agent, manifest stamped `tool_version 0.0.1`.
+- **Propagation.** `upgrade --dry-run` from HEAD reported exactly `update 1 — leader.md`,
+  `unchanged 6`, `conflict 0`; the real `upgrade` re-rendered only `leader.md`, which then
+  carried `wall-clock` (count 2). A clean library fix propagated into a stale agent.
+- **Local state preserved.** `feature_list.json` (with a hand-added feature), `profile.yaml`,
+  `progress/current.md`, and a `specs/<feature>/spec.md` were **byte-identical** (sha256
+  unchanged) across the upgrade — only managed files re-rendered.
+- **Hand-edit refused without `--force`.** Appending an operator comment to `reviewer.md`
+  made `upgrade` classify it `conflict (hand-edited)` and exit **non-zero (1)** without
+  writing; the edit survived. `upgrade --force` overwrote it (edit gone), exit 0.
+- **Adoption of a manifest-less legacy install.** A repo with pre-existing agent files but
+  no `.harness/.manifest.json`: `init` refused to clobber (exit 1, names the clashing
+  files); `init --force` adopted them — wrote a 7-file manifest matching the render and
+  re-rendered the hand-authored `leader.md` to the library version.
+
+Caveat surfaced: adoption via `init --force` is **overwrite-and-stamp**, not stamp-in-place —
+a genuinely hand-customised managed file is replaced by the library render (the documented
+`--force` semantics, but worth flagging for operators adopting a divergent legacy pack). The
+version-string gate (`prior_version != __version__`) is informational only; propagation is
+driven by content hashing, so it fires even when the tool version is unchanged (as here,
+0.0.1 → 0.0.1). Both adoption and propagation paths are now also pinned by
+`tests/test_adopt_and_propagate.py`; full suite green (61 passing).
