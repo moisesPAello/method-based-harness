@@ -7,8 +7,11 @@ read `Path.cwd()`.
 
 from __future__ import annotations
 
+import json
+import subprocess
 from argparse import Namespace
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -179,3 +182,79 @@ def test_upgrade_dry_run_writes_nothing(repo: Path, profile_path: Path) -> None:
     target.write_text("HAND EDITED leader\n")
     assert _upgrade(repo, dry_run=True) == cli.EX_OK
     assert target.read_text() == "HAND EDITED leader\n"  # untouched by dry-run
+
+
+# --- verify-gate baseline audit (finding #10) -------------------------------------
+
+def _baseline(repo: Path) -> dict:
+    return json.loads((repo / ".harness/baseline.json").read_text())
+
+
+def test_audit_records_green_baseline_when_gate_terminates(repo: Path) -> None:
+    profile = {"interpreter": "python3", "verify": {"command": "pytest -q"}}
+    runner = lambda cmd, cwd, timeout: SimpleNamespace(returncode=0, stdout=b"", stderr=b"")
+
+    audit = cli._audit_verify_gate(repo, profile, timeout=5.0, runner=runner)
+
+    assert audit["terminated"] is True
+    assert audit["red"] is False
+    assert audit["exit"] == 0
+    # Persisted to LOCAL state, under a `verify` key, and NOT a managed file.
+    assert _baseline(repo)["verify"]["exit"] == 0
+    assert ".harness/baseline.json" not in manifest.load(repo)
+
+
+def test_audit_records_red_baseline_when_gate_fails(repo: Path) -> None:
+    profile = {"interpreter": "python3", "verify": {"command": "pytest -q"}}
+    runner = lambda cmd, cwd, timeout: SimpleNamespace(returncode=1, stdout=b"", stderr=b"")
+
+    audit = cli._audit_verify_gate(repo, profile, timeout=5.0, runner=runner)
+
+    assert audit["terminated"] is True
+    assert audit["red"] is True
+    assert _baseline(repo)["verify"]["red"] is True
+
+
+def test_audit_warns_and_does_not_fail_when_gate_does_not_terminate(repo: Path, capsys) -> None:
+    profile = {"interpreter": "python3", "verify": {"command": "pytest -q"}}
+
+    def hang(cmd, cwd, timeout):
+        raise subprocess.TimeoutExpired(cmd, timeout)
+
+    audit = cli._audit_verify_gate(repo, profile, timeout=0.5, runner=hang)
+
+    assert audit["terminated"] is False
+    assert audit["timed_out"] is True
+    # Loud, impossible-to-miss warning on stderr — but the audit itself returns (no raise).
+    err = capsys.readouterr().err
+    assert "WARNING" in err and "did NOT terminate" in err
+    # The non-termination is recorded in the baseline for a later reviewer to see.
+    assert _baseline(repo)["verify"]["timed_out"] is True
+
+
+def test_audit_skips_gracefully_with_no_verify_command(repo: Path) -> None:
+    assert cli._audit_verify_gate(repo, {"interpreter": "python3"}, timeout=5.0) is None
+    assert cli._audit_verify_gate(repo, {"verify": {"command": ""}}, timeout=5.0) is None
+    assert not (repo / ".harness/baseline.json").exists()  # nothing written
+
+
+def test_audit_runs_python_gate_under_the_profile_interpreter(repo: Path) -> None:
+    seen: dict = {}
+
+    def runner(cmd, cwd, timeout):
+        seen["cmd"] = cmd
+        return SimpleNamespace(returncode=0, stdout=b"", stderr=b"")
+
+    cli._audit_verify_gate(
+        repo, {"interpreter": ".venv/bin/python", "verify": {"command": "python -m pytest -q"}},
+        timeout=5.0, runner=runner,
+    )
+    assert seen["cmd"] == ".venv/bin/python -m pytest -q"
+
+
+def test_init_writes_verify_baseline(repo: Path, profile_path: Path) -> None:
+    # End-to-end: a full init (with the autouse fake runner) snapshots the gate baseline.
+    assert _init(repo, profile_path) == cli.EX_OK
+    bl = _baseline(repo)
+    assert bl["verify"]["command"] == "pytest -q"
+    assert bl["verify"]["terminated"] is True

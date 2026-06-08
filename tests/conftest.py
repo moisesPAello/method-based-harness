@@ -30,3 +30,18 @@ def repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """An empty repo as the cwd, so the cli handlers act on it."""
     monkeypatch.chdir(tmp_path)
     return tmp_path
+
+
+@pytest.fixture(autouse=True)
+def _offline_verify_gate(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep the whole suite offline and instant: stub the init verify-gate runner so it
+    never spawns the profile's real command (the bundled example ships `pytest -q`).
+    Tests that exercise the audit explicitly install their own fake runner."""
+    from types import SimpleNamespace
+
+    from harness import cli
+
+    def _fake(command, cwd, timeout):  # green, no-op
+        return SimpleNamespace(returncode=0, stdout=b"", stderr=b"")
+
+    monkeypatch.setattr(cli, "_run_verify", _fake)

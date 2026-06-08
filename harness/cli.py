@@ -5,6 +5,7 @@ profile into host-native files). Not untrusted-input: the library is bundled and
 only external reads are the user's own repo files (for the manifest / merge).
 
     harness init     --methodology ID --host ID [--from-profile P] [--dry-run] [--force]
+                     [--verify-timeout SECS]
     harness upgrade  [--dry-run] [--force]
     harness list     [methodologies|hosts|roles]
     harness status
@@ -145,6 +146,69 @@ def _scaffold_profile(root: Path, methodology_id: str) -> str:
     return ".harness/profile.yaml"
 
 
+def _run_verify(command: str, cwd: Path, timeout: float):
+    """Run `command` once under a shell, bounded by `timeout` seconds. Returns the
+    completed process. Injectable so tests can fake it without spawning anything."""
+    import subprocess
+    return subprocess.run(command, shell=True, cwd=cwd, capture_output=True, timeout=timeout)
+
+
+def _audit_verify_gate(root: Path, profile: dict, timeout: float, runner=None) -> dict | None:
+    """Baseline-audit the profile's mechanical gate (finding #10): run `verify.command`
+    once under the interpreter, bounded by a wall-clock `timeout`, and record whether it
+    TERMINATES and its red/green baseline. Writes the result into LOCAL state
+    (.harness/baseline.json, never a managed file) so a later reviewer diffs against a
+    known baseline instead of re-deriving it each feature.
+
+    Returns the audit dict, or None when there is no verify command (graceful skip).
+    Non-termination within the cap is a loud WARNING, never a hard failure — the timeout
+    could be a slow-but-valid suite, and init must not hang or fall over on it."""
+    import json, datetime, subprocess
+    command = ((profile.get("verify") or {}).get("command", "") or "").strip()
+    if not command:
+        return None
+    if runner is None:
+        runner = _run_verify
+
+    interp = (profile.get("interpreter") or "python3").strip()
+    # Run the gate the way the agents will: pinned under the profile's interpreter when
+    # the command names a bare `python`/`python3`, so the audit reflects the real run.
+    full = command
+    if interp and command.split()[0] in ("python", "python3"):
+        full = f"{interp} {' '.join(command.split()[1:])}".rstrip()
+
+    audit: dict = {"command": command, "interpreter": interp, "timeout_s": timeout}
+    log(f"init: baseline-auditing the verify gate (cap {int(timeout)}s): {command}")
+    try:
+        r = runner(full, root, timeout)
+    except subprocess.TimeoutExpired:
+        audit.update(terminated=False, timed_out=True)
+        log("init: WARNING — the verify gate did NOT terminate within "
+            f"{int(timeout)}s. As written it is likely UNUSABLE as a gate (it may hang,")
+        log("      e.g. a visual/interactive suite). Scope it down (e.g. add a marker "
+            "filter) before relying on it, or raise --verify-timeout if it is merely slow.")
+    except (subprocess.SubprocessError, OSError) as exc:
+        audit.update(terminated=False, error=str(exc))
+        log(f"init: WARNING — could not run the verify gate: {exc}")
+    else:
+        audit.update(terminated=True, exit=r.returncode, red=r.returncode != 0)
+        color = "RED" if r.returncode != 0 else "green"
+        log(f"init: verify gate terminated, baseline {color} (exit {r.returncode}) "
+            "-> .harness/baseline.json")
+
+    baseline_path = root / ".harness/baseline.json"
+    existing: dict = {}
+    if baseline_path.is_file():
+        try:
+            existing = json.loads(baseline_path.read_text())
+        except (ValueError, OSError):
+            existing = {}
+    existing["generated"] = datetime.datetime.now().isoformat(timespec="seconds")
+    existing["verify"] = audit
+    _write(root, ".harness/baseline.json", json.dumps(existing, indent=2) + "\n")
+    return audit
+
+
 def _apply_block(root: Path, result) -> str:
     from . import compile as _compile
     target = root / result.block_path
@@ -230,6 +294,10 @@ def cmd_init(args: argparse.Namespace) -> int:
     _apply_block(root, result)
     managed = {rel: manifest.hash_text(c) for rel, c in result.files.items()}
     manifest.save(root, managed, {"methodology": args.methodology, "host": args.host, "tool_version": __version__})
+
+    # Baseline-audit the mechanical gate: does it terminate, and is it red or green?
+    # (finding #10). Advisory — never fails init. Graceful no-op without a verify command.
+    _audit_verify_gate(root, profile, timeout=getattr(args, "verify_timeout", 120.0) or 120.0)
 
     for p in sorted(result.files) + [".harness/profile.yaml", *local, result.block_path]:
         out(p)
@@ -555,6 +623,8 @@ def build_parser() -> argparse.ArgumentParser:
     pi.add_argument("--from-profile", metavar="PATH", help="seed the project profile from a file")
     pi.add_argument("--dry-run", action="store_true", help="show what would change; write nothing")
     pi.add_argument("--force", action="store_true", help="overwrite an existing install")
+    pi.add_argument("--verify-timeout", type=float, default=120.0, metavar="SECS",
+                    help="wall-clock cap for the post-install verify-gate baseline audit (default 120)")
     pi.set_defaults(func=cmd_init)
 
     pu = sub.add_parser("upgrade", help="re-render managed files; preserve local state")
