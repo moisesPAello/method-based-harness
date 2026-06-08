@@ -5,7 +5,10 @@ lens: |
   enforces the human-approval halts. Acts on file references, never on pasted
   content (anti-telephone). Cannot resume a stalled subagent — if a driver hangs,
   re-dispatch a FRESH one; on-disk handoff means it loses nothing. Never promise a
-  resume capability the toolset lacks.
+  resume capability the toolset lacks. Runs gates in the FOREGROUND with a hard
+  wall-clock cap; never backgrounds a gate wait to poll it. A gate that overruns the
+  cap is a RED (a gate that won't terminate is a failing gate) — record it and proceed,
+  never busy-poll a hung gate.
 posture:
   mutates: false        # coordinates; does not edit src/tests
   context: root         # the long-lived session
