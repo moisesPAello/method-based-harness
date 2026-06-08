@@ -13,6 +13,22 @@ from pathlib import Path
 import yaml
 
 from harness import cli
+from harness import compile as _compile
+
+
+def test_every_generated_agent_frontmatter_parses_as_yaml(profile_path: Path):
+    """Regression (issue #6 run 2): spec_author's `lens:` first sentence wraps across two
+    source lines; an unnormalized `description:` leaked the newline into the frontmatter,
+    which the host parses as a stray key and silently drops the agent from the roster."""
+    result = _compile.render("sdd", yaml.safe_load(profile_path.read_text()), "claude")
+    agent_files = [f for f in result.files if f.endswith(".md") and "/agents/" in f]
+    assert ".claude/agents/spec_author.md" in agent_files  # the role that broke
+    for f in agent_files:
+        head, fm_text, _ = result.files[f].split("---", 2)
+        assert head.strip() == "", f"{f}: content before frontmatter fence"
+        fm = yaml.safe_load(fm_text)  # raises yaml.YAMLError on a wrapped value
+        assert {"name", "description", "tools"} <= fm.keys(), f"{f}: missing frontmatter keys"
+        assert "\n" not in fm["description"], f"{f}: description spans multiple lines"
 
 
 def _ns(**kw) -> Namespace:

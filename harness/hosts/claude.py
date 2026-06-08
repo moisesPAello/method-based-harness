@@ -51,7 +51,10 @@ def _flow(meth: dict) -> str:
 
 
 def _front(role: dict, extra_desc: str) -> str:
-    desc = role["lens"].strip().split(".")[0].strip() + ". " + extra_desc
+    # Collapse internal whitespace so a wrapped `lens:` block scalar can't leak a
+    # newline into the YAML `description:` value (which the host's frontmatter
+    # parser reads as a stray key, silently dropping the agent from the roster).
+    desc = " ".join((role["lens"].strip().split(".")[0].strip() + ". " + extra_desc).split())
     return f"---\nname: {role['id']}\ndescription: {desc}\ntools: {_tools(role)}\n---\n"
 
 

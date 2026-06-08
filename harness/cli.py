@@ -498,7 +498,23 @@ def cmd_selftest(args: argparse.Namespace) -> int:
     checks.append(("reviewer carries the foreground fix", "foreground" in rev.lower()))
     checks.append(("reviewer carries the delta-gate fix", "delta" in rev.lower()))
     checks.append(("leader carries the re-dispatch fix", "re-dispatch" in led.lower()))
-    checks.append(("every agent declares tools", all("tools:" in result.files[f] for f in result.files if f.endswith(".md") and "/agents/" in f)))
+    import yaml
+    agent_files = [f for f in result.files if f.endswith(".md") and "/agents/" in f]
+
+    def _frontmatter_ok(text: str) -> bool:
+        # An agent file must lead with a `---`-fenced block that parses as a YAML
+        # mapping carrying name/description/tools — a wrapped value silently drops
+        # the agent from the host roster, so re-parse it rather than substring-match.
+        parts = text.split("---", 2)
+        if len(parts) < 3 or parts[0].strip():
+            return False
+        try:
+            fm = yaml.safe_load(parts[1])
+        except yaml.YAMLError:
+            return False
+        return isinstance(fm, dict) and {"name", "description", "tools"} <= fm.keys()
+
+    checks.append(("every agent's frontmatter parses as YAML", all(_frontmatter_ok(result.files[f]) for f in agent_files)))
     checks.append(("settings has a Stop hook", '"Stop"' in settings))
     checks.append(("CLAUDE block has markers", result.block_text.startswith(result.block_markers[0])))
     ok = all(p for _, p in checks)

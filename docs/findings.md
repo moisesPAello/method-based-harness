@@ -103,3 +103,59 @@ Run metrics: 1 spec_author (~40k tok), 1 implementer (~56k tok, 52 tools), 2 rev
 (1 hung, 1 clean), 2 human gates (spec approval, visual). 1 false start, 0 incorrect
 outcomes shipped. Highest-leverage fix: **#7 delta gates** — without it this repo's
 harness is blocked by unrelated drift on every feature.
+
+## 2026-06-08 — Run 2: first end-to-end on CLI-generated output (issue #6). Grade: B− / works, shipped one roster-breaking bug
+
+First validation of the **`harness init`-generated** pack as the operator experience (run 1
+was a hand-authored spike). A real bugfix — **`ocr_footer_detection`** (issue #78: tolerate
+OCR noise in footer/marker detection) — was driven `pending → spec_ready → [human approved]
+→ in_progress → in_review → done` in a fresh Claude Code session on the sella-cruce repo,
+using only the generated `.claude/agents/*` + `.claude/settings.json` + `.harness/` (manifest
+`tool_version: 0.0.1`). Full session export and report under `docs/` in this repo.
+
+### What held (the folded-in fixes, on generated agents)
+
+- **reviewer ran gates foreground** (finding #5 fix held) — independently re-ran
+  `pytest -q -m "not visual"`, confirmed before 45 → after 59 passed, no hung background wait.
+- **the human-approval pause was obvious and resumable** — leader halted at `spec_ready` with
+  an explicit approve prompt; on approval it bumped status and dispatched the implementer.
+- **on-disk handoff held** — spec / impl-report / review-verdict all on disk, one-line refs.
+- **scoped change discipline held** — one file (`+27/−2`), regex path left byte-for-byte
+  unchanged, conservative threshold per the "empty > invented data" constitution.
+
+### New findings
+
+9. **A multi-line `description:` silently drops an agent from the generated roster.** (issue #13) The
+   leader's *first* dispatch failed: `Agent type 'spec_author' not found. Available agents:
+   ... implementer, leader, reviewer`. The file `.claude/agents/spec_author.md` existed and
+   was freshly generated — but its YAML frontmatter `description:` wrapped onto a column-0
+   second line (`...requirements, design,⏎tasks. Writes...`), which YAML parses as a stray
+   key. Claude Code silently skipped registering the agent. Root cause: `_front()`
+   (`harness/hosts/claude.py:54`) takes `lens.split(".")[0]` of a `lens: |` block scalar and
+   drops it into `description:` **without collapsing internal whitespace**; only spec_author's
+   first sentence happened to span two source lines, so only it broke. A generated-output
+   *correctness* bug — the leader masked it by improvising a `general-purpose` agent as
+   spec_author (graceful, but it hid a shipped defect).
+   → Fix: normalize in `_front()` — `desc = " ".join(desc.split())` (guarantees a single-line
+   `description:`). Compile-check should assert every generated agent's frontmatter is
+   single-line / re-parseable, and `doctor` should verify the host actually registers each
+   roster agent, not just that the file exists.
+
+10. **The profile's mechanical gate command is taken on faith.** (issue #14) `profile.yaml` shipped
+    `pytest -q` as the gate; bare `pytest -q` **hangs forever** on the repo's
+    `@pytest.mark.visual` suite (~98% CPU, ~9 min before the operator killed it). The usable
+    gate is `pytest -q -m "not visual"` — discovered live, not declared. Sharpens #3: `init`
+    should baseline-audit the gate command (does it *terminate*? what's its red/green
+    baseline?) and the profile should carry the **scoped** command, so the operator never
+    rediscovers it mid-run. (The hang itself is a sella-cruce bug, tracked there.)
+
+11. **The leader busy-polls background gates.** (issue #15) With pytest backgrounded, the leader degraded
+    into ~9 minutes of "I'll wait" turns — it has no await-a-background-gate primitive and no
+    way to know a gate is pathological vs. merely slow. Relates to #5/#6 (background waits,
+    stalled-subagent recovery). → The leader should run bounded/foreground gates or set a
+    hard wall-clock cap and treat overrun as a red, not poll indefinitely.
+
+Run metrics: 1 spec_author (improvised general-purpose, ~40k tok), 1 implementer (~34k tok,
+25 tools), 1 reviewer (~36k tok, 22 tools, clean), 1 human gate (spec approval). 1 generated
+roster bug surfaced, 0 incorrect outcomes shipped. Highest-leverage fix: **#9** — a fresh
+`init` ships an agent the host won't load, breaking the very first dispatch of every SDD run.
