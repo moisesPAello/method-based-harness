@@ -52,6 +52,12 @@ Not yet on PyPI. Install from Git with [uv](https://docs.astral.sh/uv/):
 uv tool install git+https://github.com/moisesPAello/method-based-harness
 ```
 
+## Onboarding
+
+New here? See **[docs/ONBOARDING.md](docs/ONBOARDING.md)** for a step-by-step walkthrough:
+install → scaffold → compile → add a feature → drive it from `pending` to `in_review` with
+real command output at every step.
+
 ## Quickstart
 
 ```bash

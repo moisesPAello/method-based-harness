@@ -55,6 +55,12 @@ Aún no está en PyPI. Instala desde Git con [uv](https://docs.astral.sh/uv/):
 uv tool install git+https://github.com/moisesPAello/method-based-harness
 ```
 
+## Primeros pasos
+
+¿Eres nuevo? Consulta **[docs/ONBOARDING.md](docs/ONBOARDING.md)** para un recorrido paso a paso:
+instalación → andamiaje → compilación → añadir una feature → llevarla de `pending` a `in_review`,
+con la salida real de cada comando.
+
 ## Inicio rápido
 
 ```bash
