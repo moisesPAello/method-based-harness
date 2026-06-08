@@ -39,8 +39,12 @@ def test_doctor_fails_on_missing_managed_file(repo: Path, profile_path: Path):
 
 def test_doctor_passes_with_warning_on_drift(repo: Path, profile_path: Path):
     _install(profile_path)
-    (repo / ".claude/agents/leader.md").write_text("hand edited\n")
-    # drift is a warning, not a hard problem
+    # Simulate hand-editing: change the body but keep valid frontmatter so the file
+    # still registers with the host.  Hash mismatch is a warn, not a hard FAIL.
+    leader = repo / ".claude/agents/leader.md"
+    original = leader.read_text()
+    # Append a comment at the end — frontmatter stays intact, hash differs.
+    leader.write_text(original + "\n<!-- hand-edited -->\n")
     assert cli.cmd_doctor(Namespace(no_baseline=True)) == cli.EX_OK
 
 
@@ -65,3 +69,87 @@ def test_baseline_empty_when_no_sync_check(tmp_path: Path):
     gates = cli._write_baseline(tmp_path, {"docs": {}})
     assert gates == {}
     assert (tmp_path / ".harness/baseline.json").is_file()  # still writes the snapshot
+
+
+# --- agent frontmatter registration checks (issue #13 follow-up) -----------------
+
+def test_doctor_ok_agent_frontmatter_healthy(repo: Path, profile_path: Path):
+    """A clean install has valid frontmatter on every agent file -> doctor passes."""
+    _install(profile_path)
+    assert cli.cmd_doctor(Namespace(no_baseline=True)) == cli.EX_OK
+
+
+def test_doctor_fails_on_multiline_description(repo: Path, profile_path: Path):
+    """An agent whose description wraps to a second line would be silently dropped by
+    Claude Code's frontmatter parser.  doctor must catch this and return EX_FAIL."""
+    _install(profile_path)
+    # Inject a multi-line description into one agent file (simulates the bug from #13).
+    agent_path = repo / ".claude/agents/leader.md"
+    original = agent_path.read_text()
+    # Replace the description line with a block scalar that spans two lines.
+    corrupted = original.replace(
+        "name: leader",
+        "name: leader",
+        1,
+    )
+    # Build a minimal broken frontmatter that has a literal newline in description.
+    broken_front = "---\nname: leader\ndescription: |\n  Line one\n  Line two\ntools: Read, Glob\n---\n"
+    # Replace only the frontmatter (everything up to the second ---).
+    body_start = original.index("---", 3)  # skip the opening ---
+    body = original[original.index("\n", body_start):]  # body after closing ---
+    agent_path.write_text(broken_front + body)
+    result = cli.cmd_doctor(Namespace(no_baseline=True))
+    assert result == cli.EX_FAIL
+
+
+def test_doctor_fails_on_missing_required_key(repo: Path, profile_path: Path):
+    """An agent file whose frontmatter is missing 'tools' would not register."""
+    _install(profile_path)
+    agent_path = repo / ".claude/agents/reviewer.md"
+    original = agent_path.read_text()
+    # Drop the tools line from the frontmatter.
+    lines = original.splitlines(keepends=True)
+    fixed = [l for l in lines if not l.startswith("tools:")]
+    agent_path.write_text("".join(fixed))
+    assert cli.cmd_doctor(Namespace(no_baseline=True)) == cli.EX_FAIL
+
+
+def test_doctor_fails_on_unparseable_frontmatter(repo: Path, profile_path: Path):
+    """An agent file with malformed YAML frontmatter should fail doctor."""
+    _install(profile_path)
+    agent_path = repo / ".claude/agents/spec_author.md"
+    original = agent_path.read_text()
+    body_start = original.index("---", 3)
+    body = original[original.index("\n", body_start):]
+    broken = "---\nname: spec_author\ndescription: [unclosed bracket\ntools: Read\n---\n" + body
+    agent_path.write_text(broken)
+    assert cli.cmd_doctor(Namespace(no_baseline=True)) == cli.EX_FAIL
+
+
+def test_frontmatter_ok_helper_single_line_passes():
+    """Unit-test the shared helper directly: single-line description -> ok."""
+    text = "---\nname: foo\ndescription: A short description.\ntools: Read\n---\n# body\n"
+    ok, reason = cli._frontmatter_ok(text)
+    assert ok is True
+    assert reason == ""
+
+
+def test_frontmatter_ok_helper_multiline_fails():
+    """Unit-test the shared helper: multi-line description -> fail with reason."""
+    text = "---\nname: foo\ndescription: |\n  Line one.\n  Line two.\ntools: Read\n---\n# body\n"
+    ok, reason = cli._frontmatter_ok(text)
+    assert ok is False
+    assert "multi-line" in reason
+
+
+def test_frontmatter_ok_helper_missing_key_fails():
+    text = "---\nname: foo\ndescription: ok\n---\n# no tools key\n"
+    ok, reason = cli._frontmatter_ok(text)
+    assert ok is False
+    assert "tools" in reason
+
+
+def test_frontmatter_ok_helper_no_fence_fails():
+    text = "# Just a markdown file with no frontmatter\n"
+    ok, reason = cli._frontmatter_ok(text)
+    assert ok is False

@@ -38,6 +38,36 @@ def out(msg: str) -> None:
 
 # --- helpers ----------------------------------------------------------------------
 
+def _frontmatter_ok(text: str) -> tuple[bool, str]:
+    """Validate that *text* starts with a ``---``-fenced YAML block that would
+    register as a Claude Code agent (i.e. parses cleanly as a mapping carrying
+    ``name``, ``description``, and ``tools``, with ``description`` on a single
+    line).
+
+    Returns ``(True, "")`` on success, ``(False, reason)`` on any failure.
+    Mirrors the static check in ``cmd_selftest`` but surfaces a human-readable
+    reason so ``cmd_doctor`` can cite both the file and the exact problem.
+    """
+    import yaml
+
+    parts = text.split("---", 2)
+    if len(parts) < 3 or parts[0].strip():
+        return False, "frontmatter block not found (file must start with '---')"
+    try:
+        fm = yaml.safe_load(parts[1])
+    except yaml.YAMLError as exc:
+        return False, f"frontmatter YAML parse error: {exc}"
+    if not isinstance(fm, dict):
+        return False, "frontmatter did not parse as a YAML mapping"
+    missing = {"name", "description", "tools"} - fm.keys()
+    if missing:
+        return False, f"frontmatter missing required key(s): {', '.join(sorted(missing))}"
+    desc = fm.get("description", "")
+    if isinstance(desc, str) and "\n" in desc:
+        return False, "description is multi-line (would be dropped by the host's frontmatter parser)"
+    return True, ""
+
+
 def _load_yaml(path: Path) -> dict:
     import yaml
     return yaml.safe_load(path.read_text())
@@ -536,6 +566,25 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     if vtok and not shutil.which(vtok[0]):
         log(f"  warn: verify command '{vtok[0]}' not found on PATH")
 
+    # agent frontmatter registration check: every .claude/agents/*.md must have
+    # parseable frontmatter with name/description/tools and a single-line description —
+    # the exact conditions that cause Claude Code to silently drop an agent from the roster
+    # (issue #13 follow-up).
+    agent_dir = root / ".claude/agents"
+    agent_files = sorted(agent_dir.glob("*.md")) if agent_dir.is_dir() else []
+    for agent_path in agent_files:
+        rel = str(agent_path.relative_to(root))
+        try:
+            text = agent_path.read_text()
+        except OSError as exc:
+            log(f"  FAIL: cannot read agent file {rel}: {exc}")
+            problems.append(rel)
+            continue
+        ok, reason = _frontmatter_ok(text)
+        if not ok:
+            log(f"  FAIL: agent file would not register with host — {rel}: {reason}")
+            problems.append(rel)
+
     # baseline snapshot of the runnable mechanical gate(s)
     if not args.no_baseline:
         gates = _write_baseline(root, profile)
@@ -567,23 +616,9 @@ def cmd_selftest(args: argparse.Namespace) -> int:
     checks.append(("reviewer carries the delta-gate fix", "delta" in rev.lower()))
     checks.append(("leader carries the re-dispatch fix", "re-dispatch" in led.lower()))
     checks.append(("leader carries the bounded-gate fix", "wall-clock" in led.lower()))
-    import yaml
     agent_files = [f for f in result.files if f.endswith(".md") and "/agents/" in f]
-
-    def _frontmatter_ok(text: str) -> bool:
-        # An agent file must lead with a `---`-fenced block that parses as a YAML
-        # mapping carrying name/description/tools — a wrapped value silently drops
-        # the agent from the host roster, so re-parse it rather than substring-match.
-        parts = text.split("---", 2)
-        if len(parts) < 3 or parts[0].strip():
-            return False
-        try:
-            fm = yaml.safe_load(parts[1])
-        except yaml.YAMLError:
-            return False
-        return isinstance(fm, dict) and {"name", "description", "tools"} <= fm.keys()
-
-    checks.append(("every agent's frontmatter parses as YAML", all(_frontmatter_ok(result.files[f]) for f in agent_files)))
+    checks.append(("every agent's frontmatter parses as YAML",
+                   all(_frontmatter_ok(result.files[f])[0] for f in agent_files)))
     checks.append(("settings has a Stop hook", '"Stop"' in settings))
     checks.append(("CLAUDE block has markers", result.block_text.startswith(result.block_markers[0])))
     ok = all(p for _, p in checks)
