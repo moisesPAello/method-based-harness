@@ -17,8 +17,8 @@ of review.
 
 | State | Driver | Reads | Writes | Exit gate → next |
 |---|---|---|---|---|
-| pending | spec_author | feature_list, repo docs | `specs/<f>/{requirements,design,tasks}.md` | **spec_complete** → spec_ready, then HALT |
-| spec_ready | human | the 3 spec files | — | **human_approved** → in_progress |
+| pending | spec_author | feature_list, repo docs | `specs/<f>/{requirements,design,tasks}.md` (gaps marked `[NEEDS CLARIFICATION]`) | **spec_complete** → spec_ready, then HALT |
+| spec_ready | human | the 3 spec files | — | **human_approved** (resolves every marker) → in_progress |
 | in_progress | implementer | spec, source | code, tests/evidence, `progress/impl_<f>.md` | **impl_complete** (per type) → in_review |
 | in_review | reviewer *(fresh context)* | spec, impl report, code, CHECKPOINTS | `progress/review_<f>.md` | **review_passed** (per type) → done · reject → in_progress |
 
@@ -40,11 +40,28 @@ background task to wait on a gate (there is no async completion to wait for).
 
 ## Generic gates (the profile fills specifics)
 - **spec_complete** (mechanical): the 3 spec files exist; requirements in EARS with
-  stable `R<n>` ids; every `T<n>` cites ≥1 `R<n>`; every acceptance item maps to ≥1 `R<n>`.
-- **human_approved** (human): the human writes "approved" for the feature.
+  stable `R<n>` ids; every `T<n>` cites ≥1 `R<n>`; every acceptance item maps to ≥1 `R<n>`;
+  **coverage** — every `R<n>` is addressed in `design.md` and covered by ≥1 `T<n>` (no
+  orphans); **coherence** — the three files agree, nothing in design/tasks exceeds the
+  requirements and no requirement is silently dropped (this is the cross-artifact
+  `/analyze` pass, encoded as a gate rather than a command); every material gap is
+  surfaced as a `[NEEDS CLARIFICATION]` marker, not guessed.
+- **human_approved** (human): **no `[NEEDS CLARIFICATION]` markers remain** (a stray one is
+  a grep-able fail — the human answered each, editing the spec) **and** the human writes
+  "approved" for the feature.
 - **impl_complete** → `profile.gate_profiles[type].impl_complete`.
 - **review_passed** → `profile.gate_profiles[type].review_passed`.
 - **constitution** (always-on, from profile): checked at every gate.
+
+## `[NEEDS CLARIFICATION]` — surface uncertainty, don't guess
+Where the feature prompt is silent on something material, the spec_author writes
+`[NEEDS CLARIFICATION: <specific question>]` inline rather than inventing a plausible
+answer. Reasonable defaults may be taken and recorded, but anything that would change a
+requirement is marked. Markers are the structured channel that hands uncertainty to the
+human: they are allowed to reach `spec_ready`, and the **human_approved** gate is hard on
+them — no marker may survive into `in_progress` (a stray `[NEEDS CLARIFICATION]` is a
+grep-able fail). This is SDD's equivalent of spec-kit's `/clarify` pass — encoded between
+turns, not as a command.
 
 ## EARS — requirements.md
 One numbered `R<n>` each, one pattern: Ubiquitous `The system SHALL …`; Event
