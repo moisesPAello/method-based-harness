@@ -41,6 +41,18 @@ def _load_yaml(path: Path) -> dict:
     return yaml.safe_load(path.read_text())
 
 
+def _load_features(root: Path) -> list:
+    """Best-effort read of the feature list (for profile cross-checks). [] if absent/bad."""
+    import json
+    fl = root / ".harness/feature_list.json"
+    if not fl.is_file():
+        return []
+    try:
+        return json.loads(fl.read_text()).get("features", []) or []
+    except (ValueError, OSError):
+        return []
+
+
 def _write(root: Path, relpath: str, content: str) -> None:
     p = root / relpath
     p.parent.mkdir(parents=True, exist_ok=True)
@@ -101,7 +113,7 @@ def cmd_list(args: argparse.Namespace) -> int:
 
 
 def cmd_init(args: argparse.Namespace) -> int:
-    from . import compile as _compile, manifest
+    from . import compile as _compile, manifest, validate
     root = Path.cwd()
 
     if (root / manifest.MANIFEST_REL).exists() and not args.force:
@@ -113,6 +125,20 @@ def cmd_init(args: argparse.Namespace) -> int:
         log("init: need a profile — pass --from-profile PATH (or create .harness/profile.yaml).")
         return EX_FAIL
     profile = _load_yaml(prof_path)
+
+    try:
+        meth = _compile.load_methodology(_compile.library_root(), args.methodology)
+    except FileNotFoundError as exc:
+        log(f"init: {exc}")
+        return EX_FAIL
+    errs, warns = validate.validate_profile(profile, meth)
+    for w in warns:
+        log(f"profile: {w}")
+    if errs:
+        for e in errs:
+            log(f"profile: {e}")
+        log(f"init: invalid profile ({prof_path}) — fix it and retry.")
+        return EX_FAIL
 
     result = _compile.render(args.methodology, profile, args.host)
     planned = sorted(result.files) + [".harness/profile.yaml", result.block_path]
@@ -147,7 +173,7 @@ def cmd_init(args: argparse.Namespace) -> int:
 
 
 def cmd_upgrade(args: argparse.Namespace) -> int:
-    from . import compile as _compile, manifest
+    from . import compile as _compile, manifest, validate
     root = Path.cwd()
     prof_path = root / ".harness/profile.yaml"
     if not prof_path.is_file():
@@ -156,6 +182,20 @@ def cmd_upgrade(args: argparse.Namespace) -> int:
     profile = _load_yaml(prof_path)
     methodology = profile.get("methodology", "sdd")
     host = profile.get("host", "claude")
+
+    try:
+        meth = _compile.load_methodology(_compile.library_root(), methodology)
+    except FileNotFoundError as exc:
+        log(f"upgrade: {exc}")
+        return EX_FAIL
+    errs, warns = validate.validate_profile(profile, meth, features=_load_features(root))
+    for w in warns:
+        log(f"profile: {w}")
+    if errs:
+        for e in errs:
+            log(f"profile: {e}")
+        log("upgrade: invalid .harness/profile.yaml — fix it and retry.")
+        return EX_FAIL
 
     result = _compile.render(methodology, profile, host)
     prior = manifest.load(root)
