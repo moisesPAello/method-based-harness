@@ -14,9 +14,14 @@ gates:
       - "the 3 spec files exist (requirements.md, design.md, tasks.md)"
       - "requirements are EARS with stable R<n> ids"
       - "every T<n> cites >=1 R<n>; every acceptance item maps to >=1 R<n>"
+      - "coverage (no orphans): every R<n> is addressed in design.md AND covered by >=1 T<n>"
+      - "coherence: requirements.md, design.md, tasks.md agree — nothing in design/tasks introduces scope absent from a R<n>, and no R<n> is silently dropped (the /analyze pass, encoded between turns)"
+      - "every material gap the prompt left open is surfaced as a [NEEDS CLARIFICATION: <question>] marker, not guessed (markers MAY reach spec_ready; the human resolves them at the approval gate)"
   human_approved:
     class: human
-    checks: ["a human writes 'approved' for the feature"]
+    checks:
+      - "no [NEEDS CLARIFICATION] markers remain in the spec (grep is empty) — the human answered each, editing the spec"
+      - "a human writes 'approved' for the feature"
   impl_complete:
     class: per-type            # resolved from profile.gate_profiles[<type>].impl_complete
   review_passed:
