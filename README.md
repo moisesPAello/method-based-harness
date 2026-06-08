@@ -57,24 +57,31 @@ uv tool install git+https://github.com/moisesPAello/method-based-harness
 ```bash
 cd your-repo
 
-# 1. Describe your repo to the harness in .harness/profile.yaml:
-#    the verify command, the always-on "constitution" rules, and per-feature-type gates.
-#    Start from the bundled example: harness/library/examples/sella-cruce/profile.yaml
-$EDITOR .harness/profile.yaml
-
-# 2. Compile the harness into the repo.
+# 1. Scaffold a starter profile. A bare init writes .harness/profile.yaml
+#    (sniffing your interpreter and test command) and stops.
 harness init --methodology sdd --host claude
 
-# 3. Open your agent host (Claude Code) and ask it to build the next feature.
+# 2. Fill it in: the verify command, the always-on "constitution" rules, and
+#    per-feature-type gates. Re-running is gated until the required fields are set.
+#    A worked example: harness/library/examples/sella-cruce/profile.yaml
+$EDITOR .harness/profile.yaml
+
+# 3. Re-run init to compile the harness into the repo.
+harness init --methodology sdd --host claude
+
+# 4. Open your agent host (Claude Code) and ask it to build the next feature.
 #    It acts as the orchestrator and drives the methodology's gates.
+#    Check progress any time with `harness status`; check install health with `harness doctor`.
 ```
 
 ## Commands
 
 | Command | What it does |
 |---|---|
-| `harness init` | compile the library + your profile into the repo (`--methodology`, `--host`, `--from-profile`, `--dry-run`, `--force`) |
+| `harness init` | scaffold a starter profile (bare run), or compile the library + your profile into the repo (`--methodology`, `--host`, `--from-profile`, `--dry-run`, `--force`) |
 | `harness upgrade` | re-render the managed files from the (updated) library; preserves local state, prunes orphans, refuses hand-edited files without `--force` |
+| `harness status` | show each feature and its current state from `.harness/feature_list.json` (read-only) |
+| `harness doctor` | diagnose an installed harness — profile validity, manifest integrity, resolvable interpreter/verify — and snapshot the mechanical gate(s) (`--no-baseline`) |
 | `harness list` | show available methodologies, hosts, and roles |
 | `harness selftest` | render a bundled fixture and verify the output (offline) |
 
