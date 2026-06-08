@@ -67,6 +67,18 @@ def test_scaffold_defaults_when_nothing_detected(repo: Path):
     assert doc["verify"]["command"] == ""  # empty -> validator will require it
 
 
+def test_scaffold_exposes_docs_sync_check_slot(repo: Path):
+    """Issue #22: the scaffold must surface an (optional) docs.sync_check slot so a
+    first-time operator can discover that filling it wires the Stop docs-parity hook.
+    Empty by default -> no hook wired (correct), but visible + documented."""
+    cli._scaffold_profile(repo, "sdd")
+    text = (repo / ".harness/profile.yaml").read_text()
+    assert "Stop hook" in text, "scaffold does not explain the conditional Stop hook"
+    doc = yaml.safe_load(text)
+    assert "docs" in doc and doc["docs"].get("sync_check") == "", \
+        "scaffold should ship an empty docs.sync_check slot (no hook until filled)"
+
+
 def test_from_profile_missing_path_errors_without_scaffolding(repo: Path):
     assert cli.cmd_init(_ns(from_profile=str(repo / "nope.yaml"))) == cli.EX_FAIL
     assert not (repo / ".harness/profile.yaml").exists()  # did NOT scaffold where user pointed

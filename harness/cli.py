@@ -166,6 +166,11 @@ def _scaffold_profile(root: Path, methodology_id: str) -> str:
         f"# Interpreter the gate commands run under — pin it so they're deterministic.\n"
         f'interpreter: "{interp}"\n\n'
         f"verify:\n{verify_line}\n\n"
+        f"# Docs-parity gate (OPTIONAL). Set `sync_check` to a command that proves the docs\n"
+        f"# match the code and `init` compiles it into a Stop hook (runs before a feature can\n"
+        f'# close) and the reviewer cites it. Leave it "" and no docs hook is wired.\n'
+        f"docs:\n"
+        f'  sync_check: ""              # TODO (optional): e.g. "python scripts/check_docs_sync.py"\n\n'
         f"# Always-on rules, compiled to host hooks. [] = none. Each entry needs an `id`.\n"
         f"constitution: []\n\n"
         f"# Gates differ by feature TYPE. `default` is required; add more keyed to a feature `type`.\n"
