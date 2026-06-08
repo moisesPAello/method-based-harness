@@ -156,7 +156,11 @@ One line: `done -> .harness/progress/impl_<feature>.md` (or `blocked -> ...`). N
 
 def _reviewer(role, meth, profile) -> str:
     ph = _phase_for(meth, "reviewer")
-    sync = profile.get("docs", {}).get("sync_check", "the docs/parity check")
+    # Only name a docs-parity check when the profile actually configures one. With no
+    # `docs.sync_check`, emitting a placeholder string here reads to a live reviewer as a
+    # runnable command it cannot find (issue #21) — so drop the clause entirely instead.
+    sync = profile.get("docs", {}).get("sync_check")
+    sync_clause = f" (incl. `{sync}`)" if sync else ""
     verify = profile.get("verify", {}).get("command", "the verify command")
     return f"""{_front(role, "Independent judge; re-runs gates; never fixes.")}
 # reviewer (independent — fresh context)
@@ -167,7 +171,7 @@ def _reviewer(role, meth, profile) -> str:
 - **Read:** {', '.join(ph.get('reads', []))}, plus `.harness/profile.yaml` (`gate_profiles[<type>].review_passed`) and `.harness/CHECKPOINTS.md`.
 - Re-run every gate yourself, in the FOREGROUND. **Mechanical gates are a DELTA**: if red both
   before AND after the change (stash + re-run), it is pre-existing — flag it, do not block.
-- Check traceability (each `R<n>` → real evidence), placeholders, the constitution (incl. `{sync}`), and `{verify}`.
+- Check traceability (each `R<n>` → real evidence), placeholders, the constitution{sync_clause}, and `{verify}`.
 - Walk CHECKPOINTS + the type's `review_passed`. Do NOT self-approve human gates (e.g. visual) — surface the evidence.
 
 ## Output

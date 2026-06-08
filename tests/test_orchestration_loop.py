@@ -237,3 +237,36 @@ class TestSddStateMachine:
         # "STOP and ask the human to approve" is the canonical phrasing
         assert "STOP" in led and ("human" in led.lower() or "approve" in led.lower()), \
             "leader.md does not tell the orchestrator to halt and ask a human to approve"
+
+
+# ---------------------------------------------------------------------------
+# 6. reviewer docs-parity clause — present only when configured (issue #21)
+# ---------------------------------------------------------------------------
+
+class TestReviewerDocsParityClause:
+    """Regression for #21: when the profile has no `docs.sync_check`, the reviewer
+    must NOT name a docs-parity check at all — the old renderer emitted a literal
+    placeholder `the docs/parity check` that reads to a live reviewer as a runnable
+    command it cannot find. When a sync_check IS configured, the reviewer names it."""
+
+    def _reviewer_with(self, profile_path: Path, docs) -> str:
+        profile = yaml.safe_load(profile_path.read_text())
+        if docs is None:
+            profile.pop("docs", None)
+        else:
+            profile["docs"] = docs
+        return _compile.render("sdd", profile, "claude").files[".claude/agents/reviewer.md"]
+
+    def test_no_placeholder_when_sync_check_absent(self, profile_path: Path):
+        rev = self._reviewer_with(profile_path, docs=None)
+        assert "the docs/parity check" not in rev, \
+            "reviewer.md still emits the placeholder docs-parity string when none is configured"
+        assert "(incl. ``)" not in rev and "(incl. `)" not in rev, \
+            "reviewer.md emits an empty docs-parity clause"
+        # the clause is dropped: constitution is followed directly by the verify check
+        assert "the constitution," in rev
+
+    def test_names_real_sync_check_when_present(self, profile_path: Path):
+        rev = self._reviewer_with(profile_path, docs={"sync_check": "make docs-check"})
+        assert "(incl. `make docs-check`)" in rev, \
+            "reviewer.md does not name the configured docs.sync_check command"
