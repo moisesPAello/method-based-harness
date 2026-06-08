@@ -7,6 +7,7 @@ only external reads are the user's own repo files (for the manifest / merge).
     harness init     --methodology ID --host ID [--from-profile P] [--dry-run] [--force]
     harness upgrade  [--dry-run] [--force]
     harness list     [methodologies|hosts|roles]
+    harness status
     harness selftest
 
 I/O: stdout is data (changed-file list, the listing), stderr is logs (progress,
@@ -223,6 +224,74 @@ def cmd_upgrade(args: argparse.Namespace) -> int:
     return EX_OK
 
 
+def _next_action(meth: dict | None, status: str) -> str:
+    """Cheap next-expected-action for a feature in `status`, derived from the
+    methodology's phases ([{state, driver, to}, ...]). '' if not derivable."""
+    if not meth:
+        return ""
+    for phase in meth.get("phases", []):
+        if phase.get("state") == status:
+            driver, to = phase.get("driver"), phase.get("to")
+            if driver and to:
+                return f"{driver} -> {to}"
+            if driver:
+                return str(driver)
+            return ""
+    return ""
+
+
+def cmd_status(args: argparse.Namespace) -> int:
+    import json
+    root = Path.cwd()
+    fl = root / ".harness/feature_list.json"
+    if not fl.is_file():
+        log("status: no .harness/feature_list.json here — run `init` first.")
+        return EX_FAIL
+
+    data = json.loads(fl.read_text())
+    features = data.get("features", []) or []
+
+    # Optional: load the methodology to annotate the next expected action. Best-effort —
+    # never fail status because the methodology is unknown/unavailable.
+    meth = None
+    try:
+        from . import compile as _compile
+        meth = _compile.load_methodology(_compile.library_root(), data.get("methodology", "sdd"))
+    except Exception:
+        meth = None
+
+    project = data.get("project", root.name)
+    log(f"status: {project} ({data.get('methodology', '?')}) — {len(features)} feature(s)")
+
+    if not features:
+        out("(no features yet — add one to .harness/feature_list.json to get started)")
+        return EX_OK
+
+    rows = []
+    show_type = any(f.get("type") for f in features)
+    show_next = meth is not None
+    for f in features:
+        fid = str(f.get("id") or f.get("name") or "?")
+        status = str(f.get("status") or "?")
+        row = [fid, status]
+        if show_type:
+            row.append(str(f.get("type") or "-"))
+        if show_next:
+            row.append(_next_action(meth, status) or "-")
+        rows.append(row)
+
+    headers = ["ID", "STATUS"]
+    if show_type:
+        headers.append("TYPE")
+    if show_next:
+        headers.append("NEXT")
+    table = [headers, *rows]
+    widths = [max(len(r[c]) for r in table) for c in range(len(headers))]
+    for r in table:
+        out("  ".join(cell.ljust(widths[c]) for c, cell in enumerate(r)).rstrip())
+    return EX_OK
+
+
 def cmd_selftest(args: argparse.Namespace) -> int:
     from . import compile as _compile
     root = _compile.library_root()
@@ -289,6 +358,9 @@ def build_parser() -> argparse.ArgumentParser:
     pl = sub.add_parser("list", help="show what the library offers")
     pl.add_argument("what", nargs="?", choices=["methodologies", "hosts", "roles"])
     pl.set_defaults(func=cmd_list)
+
+    pst = sub.add_parser("status", help="show features and their state from .harness/feature_list.json (read-only)")
+    pst.set_defaults(func=cmd_status)
 
     ps = sub.add_parser("selftest", help="render a bundled fixture and verify output (offline)")
     ps.set_defaults(func=cmd_selftest)
