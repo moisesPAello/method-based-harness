@@ -20,7 +20,7 @@ test = ["pytest>=7"]
 harness = "harness.cli:main"
 
 [tool.setuptools]
-packages = ["harness", "harness.hosts"]
+packages = ["harness", "harness.hosts", "harness.trackers"]
 
 # The methodology/role library ships as package data so the installed tool carries
 # its own templates. Kept at repo top-level for human editing; included into the wheel.

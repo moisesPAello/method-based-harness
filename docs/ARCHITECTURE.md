@@ -66,3 +66,33 @@ Because methodology and host are orthogonal:
 
 Build only the cell you need first (SDD × Claude). Extract the renderer abstraction
 when a second host or methodology actually forces it — not before.
+
+## The tracker seam (optional, opt-in) — "issues as the membrane, disk as the organ"
+
+On-disk state is the **source of truth** for execution: the state machine, gates and
+EARS traceability never leave disk. An external issue tracker is an *optional* adapter
+that syncs only the **backlog edge**, symmetric to the host layer (`harness/trackers/`
+mirrors `harness/hosts/`):
+
+| `tracker:` | Behavior |
+|---|---|
+| `none` (default) | Disk only. A complete no-op — no network, no auth, no `gh` code reached. The harness is byte-for-byte unchanged. |
+| `github-issues` (opt-in) | The leader may run `harness tracker sync`: **intake** (open issues seed `pending` features) + **outtake** (a `done` feature closes its issue with links to the spec/review artifacts). Shells out to `gh`; degrades gracefully when `gh` is missing/unauthenticated. |
+
+The adapter interface is deliberately tiny:
+
+```
+intake(root, profile, *, run=None)  -> list[feature_dict]   # seed backlog
+outtake(root, profile, feature, *, run=None) -> bool         # close on done
+```
+
+Hard boundaries (acceptance criteria for issue #4):
+
+- **Only the leader** integrates with the tracker. Subagents stay disk-only.
+- **State machine / gates / traceability never leave disk** — the tracker only touches
+  the backlog edge (new features in, closed issues out).
+- The adapter is **optional**: with `tracker: none` (or absent) the render and every
+  core flow (`init`/`upgrade`/`status`/`doctor`) are unchanged and run no `gh`/network
+  code. The `github-issues` module is imported lazily, only when opted in.
+- `harness tracker sync` is the sole entrypoint that may reach a tracker, and it is a
+  no-op under `tracker: none`. The runner is injectable, so tests fake `gh` offline.
