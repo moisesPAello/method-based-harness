@@ -566,6 +566,7 @@ def cmd_selftest(args: argparse.Namespace) -> int:
     checks.append(("reviewer carries the foreground fix", "foreground" in rev.lower()))
     checks.append(("reviewer carries the delta-gate fix", "delta" in rev.lower()))
     checks.append(("leader carries the re-dispatch fix", "re-dispatch" in led.lower()))
+    checks.append(("leader carries the bounded-gate fix", "wall-clock" in led.lower()))
     import yaml
     agent_files = [f for f in result.files if f.endswith(".md") and "/agents/" in f]
 

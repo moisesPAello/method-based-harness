@@ -83,6 +83,11 @@ def _leader(role, meth, profile) -> str:
 1. Read `.harness/methodology.md`, `.harness/profile.yaml`, `.harness/feature_list.json`, `.harness/progress/current.md`.
 2. Confirm the baseline: run `{verify}` (via `{interp}`). If it cannot run or is red, stop and report.
 
+## Running gates (foreground, bounded — never poll)
+Run every gate in the FOREGROUND under a hard wall-clock cap (e.g. `timeout`); never
+background a gate wait and poll it. A gate that overruns the cap is a **red** (a gate
+that won't terminate is a failing gate) — record the red and proceed, don't wait it out.
+
 ## Flow (never skip a phase or a gate)
 `{_flow(meth)}`
 
