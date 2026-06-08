@@ -270,3 +270,32 @@ class TestReviewerDocsParityClause:
         rev = self._reviewer_with(profile_path, docs={"sync_check": "make docs-check"})
         assert "(incl. `make docs-check`)" in rev, \
             "reviewer.md does not name the configured docs.sync_check command"
+
+
+# ---------------------------------------------------------------------------
+# 7. structured state machine emitted into the installed repo (issue #23)
+# ---------------------------------------------------------------------------
+
+class TestMethodologyYamlEmitted:
+    """Regression for #23: the render must emit `.harness/methodology.yaml` (the
+    structured state machine) alongside the human-readable `.harness/methodology.md`,
+    so agents/tooling can parse phases/gates/states from the installed repo without
+    importing the library. The copy is verbatim (keeps comments/order)."""
+
+    def test_methodology_yaml_is_emitted(self, profile_path: Path):
+        result = _render(profile_path)
+        assert ".harness/methodology.yaml" in result.files, \
+            "render does not emit .harness/methodology.yaml"
+
+    def test_methodology_yaml_parses_with_state_machine(self, profile_path: Path):
+        result = _render(profile_path)
+        meth = yaml.safe_load(result.files[".harness/methodology.yaml"])
+        assert isinstance(meth, dict)
+        assert {"phases", "states", "gates"} <= meth.keys(), \
+            "emitted methodology.yaml is missing the structured state machine keys"
+
+    def test_methodology_yaml_is_verbatim_library_copy(self, profile_path: Path, lib_root: Path):
+        result = _render(profile_path)
+        raw = (lib_root / "methodologies/sdd/methodology.yaml").read_text()
+        assert result.files[".harness/methodology.yaml"] == raw, \
+            "emitted methodology.yaml diverges from the library source (should be verbatim)"

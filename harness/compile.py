@@ -54,7 +54,8 @@ def load_methodology(root: Path, mid: str) -> dict:
 
 
 def library_doc(root: Path, mid: str, name: str) -> str:
-    """Read a methodology's human doc (methodology.md, CHECKPOINTS.md). '' if absent."""
+    """Read a methodology's bundled file (methodology.md, methodology.yaml, CHECKPOINTS.md)
+    as raw text — verbatim, so the structured source keeps its comments/order. '' if absent."""
     f = root / "methodologies" / mid / name
     return f.read_text() if f.is_file() else ""
 
@@ -75,6 +76,9 @@ def render(methodology_id: str, profile: dict, host: str, root: Path | None = No
     roles = load_roles(root)
     docs = {
         "methodology.md": library_doc(root, methodology_id, "methodology.md"),
+        # The structured state machine, copied verbatim so an installed repo can read
+        # phases/gates/states without importing the library (issue #23).
+        "methodology.yaml": library_doc(root, methodology_id, "methodology.yaml"),
         "CHECKPOINTS.md": library_doc(root, methodology_id, "CHECKPOINTS.md"),
     }
     return HOSTS[host](meth, roles, profile, docs)

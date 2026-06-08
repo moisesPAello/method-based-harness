@@ -279,6 +279,9 @@ def render(meth: dict, roles: dict, profile: dict, docs: dict):
 
     files[".claude/settings.json"] = _settings(profile)
     files[".harness/methodology.md"] = docs.get("methodology.md", "")
+    # Structured state machine alongside the human doc, so agents/tooling can parse
+    # phases/gates from the installed repo (issue #23). Empty content is dropped below.
+    files[".harness/methodology.yaml"] = docs.get("methodology.yaml", "")
     files[".harness/CHECKPOINTS.md"] = docs.get("CHECKPOINTS.md", "")
 
     return RenderResult(
