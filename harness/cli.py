@@ -89,6 +89,62 @@ def _scaffold_local(root: Path, profile: dict) -> list[str]:
     return written
 
 
+def _mentions_pytest(root: Path) -> bool:
+    """Cheap signal that this repo's verify command is probably pytest."""
+    for fn in ("pyproject.toml", "setup.cfg", "tox.ini", "requirements.txt"):
+        p = root / fn
+        if p.is_file():
+            try:
+                if "pytest" in p.read_text():
+                    return True
+            except OSError:
+                pass
+    return False
+
+
+def _scaffold_profile(root: Path, methodology_id: str) -> str:
+    """Write a commented starter .harness/profile.yaml for `methodology_id`: best-effort
+    detected interpreter/verify, and EMPTY gate slots so the profile fails validation until
+    filled (scaffold + validate compose into a guided fill-in loop). Returns the relpath.
+    Caller guarantees the file is absent — this never clobbers."""
+    from . import compile as _compile
+    interp = "python3"
+    for cand in (".venv/bin/python", "venv/bin/python"):
+        if (root / cand).exists():
+            interp = cand
+            break
+    verify = "pytest -q" if ((root / "tests").is_dir() or _mentions_pytest(root)) else ""
+    verify_line = (f'  command: "{verify}"          # detected' if verify else
+                   '  command: ""                 # TODO: the command that proves a change is safe')
+    try:
+        meth = _compile.load_methodology(_compile.library_root(), methodology_id)
+        slots = [n for n, g in (meth.get("gates") or {}).items()
+                 if isinstance(g, dict) and g.get("class") == "per-type"]
+    except FileNotFoundError:
+        slots = ["impl_complete", "review_passed"]
+    slot_block = "\n".join(f"    {s}: []          # TODO: checkable conditions for `{s}`"
+                           for s in slots) or "    # this methodology declares no per-type gates"
+    content = (
+        f"# .harness/profile.yaml — this repo's binding for the `{methodology_id}` methodology.\n"
+        f"# `harness init` generated this. Fill the TODOs (empty values fail validation on\n"
+        f"# re-run), then re-run `harness init` to install. Full worked example:\n"
+        f"# harness/library/examples/sella-cruce/profile.yaml\n"
+        f"project: {root.name}\n"
+        f"methodology: {methodology_id}\n"
+        f"host: claude\n\n"
+        f"# Interpreter the gate commands run under — pin it so they're deterministic.\n"
+        f'interpreter: "{interp}"\n\n'
+        f"verify:\n{verify_line}\n\n"
+        f"# Always-on rules, compiled to host hooks. [] = none. Each entry needs an `id`.\n"
+        f"constitution: []\n\n"
+        f"# Gates differ by feature TYPE. `default` is required; add more keyed to a feature `type`.\n"
+        f"gate_profiles:\n"
+        f"  default:\n{slot_block}\n"
+    )
+    _write(root, ".harness/profile.yaml", content)
+    return ".harness/profile.yaml"
+
+
 def _apply_block(root: Path, result) -> str:
     from . import compile as _compile
     target = root / result.block_path
@@ -121,10 +177,18 @@ def cmd_init(args: argparse.Namespace) -> int:
         log("init: already installed (found .harness/.manifest.json). Use `upgrade`, or --force.")
         return EX_FAIL
 
-    prof_path = Path(args.from_profile) if args.from_profile else (root / ".harness/profile.yaml")
-    if not prof_path.is_file():
-        log("init: need a profile — pass --from-profile PATH (or create .harness/profile.yaml).")
-        return EX_FAIL
+    if args.from_profile:
+        prof_path = Path(args.from_profile)
+        if not prof_path.is_file():
+            log(f"init: --from-profile {prof_path} not found.")
+            return EX_FAIL
+    else:
+        prof_path = root / ".harness/profile.yaml"
+        if not prof_path.is_file():
+            rel = _scaffold_profile(root, args.methodology)
+            log(f"init: no profile yet — wrote a starter {rel}")
+            log("      edit it (verify command, interpreter, gate_profiles), then re-run `harness init`.")
+            return EX_FAIL
     profile = _load_yaml(prof_path)
 
     try:

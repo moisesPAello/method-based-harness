@@ -84,8 +84,10 @@ def test_init_dry_run_writes_nothing(repo: Path, profile_path: Path) -> None:
     assert not (repo / MANAGED_SAMPLE).exists()
 
 
-def test_init_needs_a_profile(repo: Path) -> None:
+def test_init_with_no_profile_scaffolds_a_starter(repo: Path) -> None:
+    # Bare init with no profile writes a starter and stops (not installed yet).
     assert cli.cmd_init(_ns(from_profile=None)) == cli.EX_FAIL
+    assert (repo / ".harness/profile.yaml").is_file()
 
 
 # --- upgrade ----------------------------------------------------------------------
