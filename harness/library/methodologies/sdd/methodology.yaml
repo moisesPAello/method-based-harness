@@ -51,4 +51,7 @@ phases:
 escalation:
   trivial: [spec_author, implementer]
   normal:  [spec_author, implementer, reviewer]
-  complex: [explorer, spec_author, implementer, reviewer]
+  # Every name here must resolve to a real role lens (roles/<id>.role.yaml) + a host builder,
+  # else the host warns and the agent never renders. To add an exploration step, ship a real
+  # `explorer` role+lens first, then list it here.
+  complex: [spec_author, implementer, reviewer]

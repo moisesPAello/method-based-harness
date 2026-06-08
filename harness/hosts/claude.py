@@ -14,9 +14,15 @@ foreground") propagates into the compiled agent on the next `upgrade`.
 from __future__ import annotations
 
 import json
+import sys
 
 BEGIN = "<!-- METHOD-HARNESS:BEGIN (managed — do not hand-edit; `harness upgrade` overwrites) -->"
 END = "<!-- METHOD-HARNESS:END -->"
+
+
+def _warn(msg: str) -> None:
+    """Diagnostic to stderr (stdout is data); mirrors cli.log without importing it."""
+    print(f"render(claude): {msg}", file=sys.stderr)
 
 
 def _tools(role: dict) -> str:
@@ -177,6 +183,26 @@ def _roster(meth: dict) -> list[str]:
     return [n for n in ["leader", "spec_author", "implementer", "reviewer"] if n in names]
 
 
+def _validate_roles(meth: dict, roles: dict) -> None:
+    """Warn (stderr) about any role this host cannot render. Covers the phase drivers
+    AND the escalation menu, so a dangling reference in either is surfaced, not dropped."""
+    def renderable(name: str) -> bool:
+        return name in _BUILDERS and name in roles
+
+    for ph in meth["phases"]:
+        drv = ph["driver"]
+        if drv != "human" and not renderable(drv):
+            why = "no builder" if drv not in _BUILDERS else "no role lens"
+            _warn(f"phase driver '{drv}' cannot render ({why}); the phase will have no agent file.")
+
+    for tier, names in (meth.get("escalation") or {}).items():
+        for name in names:
+            if name == "human" or renderable(name):
+                continue
+            why = "no builder" if name not in _BUILDERS else "no role lens"
+            _warn(f"escalation.{tier} names '{name}' but it cannot render ({why}); fix the methodology or add the role.")
+
+
 def _settings(profile: dict) -> str:
     sync = profile.get("docs", {}).get("sync_check")
     interp = profile.get("interpreter", "python3")
@@ -229,10 +255,13 @@ def render(meth: dict, roles: dict, profile: dict, docs: dict):
     # imported here to avoid a circular import at module load
     from ..compile import RenderResult
 
+    _validate_roles(meth, roles)
+
     files: dict[str, str] = {}
     for name in _roster(meth):
         role = roles.get(name)
         if role is None:
+            _warn(f"roster role '{name}' has no lens (roles/{name}.role.yaml); skipping its agent file.")
             continue
         files[f".claude/agents/{name}.md"] = _BUILDERS[name](role, meth, profile)
 
