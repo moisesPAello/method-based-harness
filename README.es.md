@@ -60,24 +60,31 @@ uv tool install git+https://github.com/moisesPAello/method-based-harness
 ```bash
 cd tu-repo
 
-# 1. Describe tu repo al arnés en .harness/profile.yaml:
-#    el comando de verify, las reglas siempre-activas de "constitución" y los gates por tipo.
-#    Parte del ejemplo incluido: harness/library/examples/sella-cruce/profile.yaml
-$EDITOR .harness/profile.yaml
-
-# 2. Compila el arnés dentro del repo.
+# 1. Genera un perfil inicial. Un init sin perfil escribe .harness/profile.yaml
+#    (detectando tu intérprete y comando de tests) y se detiene.
 harness init --methodology sdd --host claude
 
-# 3. Abre tu host de agentes (Claude Code) y pídele que implemente la siguiente feature.
+# 2. Complétalo: el comando de verify, las reglas siempre-activas de "constitución"
+#    y los gates por tipo. Re-ejecutar queda bloqueado hasta llenar los campos requeridos.
+#    Un ejemplo trabajado: harness/library/examples/sella-cruce/profile.yaml
+$EDITOR .harness/profile.yaml
+
+# 3. Re-ejecuta init para compilar el arnés dentro del repo.
+harness init --methodology sdd --host claude
+
+# 4. Abre tu host de agentes (Claude Code) y pídele que implemente la siguiente feature.
 #    Actúa como orquestador y conduce los gates de la metodología.
+#    Revisa el avance con `harness status`; revisa la salud de la instalación con `harness doctor`.
 ```
 
 ## Comandos
 
 | Comando | Qué hace |
 |---|---|
-| `harness init` | compila la biblioteca + tu perfil dentro del repo (`--methodology`, `--host`, `--from-profile`, `--dry-run`, `--force`) |
+| `harness init` | genera un perfil inicial (ejecución sin perfil), o compila la biblioteca + tu perfil dentro del repo (`--methodology`, `--host`, `--from-profile`, `--dry-run`, `--force`) |
 | `harness upgrade` | re-renderiza los archivos gestionados desde la biblioteca (actualizada); preserva el estado local, elimina huérfanos y rechaza archivos editados a mano sin `--force` |
+| `harness status` | muestra cada feature y su estado actual desde `.harness/feature_list.json` (solo lectura) |
+| `harness doctor` | diagnostica un arnés instalado — validez del perfil, integridad del manifest, intérprete/verify resolubles — y captura los gates mecánicos (`--no-baseline`) |
 | `harness list` | muestra metodologías, hosts y roles disponibles |
 | `harness selftest` | renderiza un fixture incluido y verifica la salida (sin red) |
 
