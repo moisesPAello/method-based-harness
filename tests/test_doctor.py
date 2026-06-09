@@ -153,3 +153,64 @@ def test_frontmatter_ok_helper_no_fence_fails():
     text = "# Just a markdown file with no frontmatter\n"
     ok, reason = cli._frontmatter_ok(text)
     assert ok is False
+
+
+# --- .claude/CLAUDE.md block integrity checks ------------------------------------
+
+def test_doctor_fails_when_claude_md_missing(repo: Path, profile_path: Path):
+    """Installed harness with .claude/CLAUDE.md removed -> doctor FAIL."""
+    _install(profile_path)
+    (repo / ".claude/CLAUDE.md").unlink()
+    assert cli.cmd_doctor(Namespace(no_baseline=True)) == cli.EX_FAIL
+
+
+def test_doctor_fails_when_block_absent_from_claude_md(repo: Path, profile_path: Path):
+    """CLAUDE.md exists but both markers were deleted -> doctor FAIL (install incomplete)."""
+    _install(profile_path)
+    claude_md = repo / ".claude/CLAUDE.md"
+    from harness.hosts.claude import BEGIN, END
+    original = claude_md.read_text()
+    # Strip out the entire managed block, leaving only surrounding content.
+    begin_idx = original.index(BEGIN)
+    end_idx = original.index(END) + len(END)
+    stripped = original[:begin_idx] + original[end_idx:]
+    claude_md.write_text(stripped)
+    assert cli.cmd_doctor(Namespace(no_baseline=True)) == cli.EX_FAIL
+
+
+def test_doctor_fails_when_only_begin_marker_present(repo: Path, profile_path: Path):
+    """CLAUDE.md has BEGIN but END was deleted by hand -> half-marker state -> FAIL."""
+    _install(profile_path)
+    claude_md = repo / ".claude/CLAUDE.md"
+    from harness.hosts.claude import BEGIN, END
+    original = claude_md.read_text()
+    # Remove only the END marker.
+    claude_md.write_text(original.replace(END, ""))
+    assert cli.cmd_doctor(Namespace(no_baseline=True)) == cli.EX_FAIL
+
+
+def test_doctor_fails_when_only_end_marker_present(repo: Path, profile_path: Path):
+    """CLAUDE.md has END but BEGIN was deleted by hand -> half-marker state -> FAIL."""
+    _install(profile_path)
+    claude_md = repo / ".claude/CLAUDE.md"
+    from harness.hosts.claude import BEGIN, END
+    original = claude_md.read_text()
+    # Remove only the BEGIN marker.
+    claude_md.write_text(original.replace(BEGIN, ""))
+    assert cli.cmd_doctor(Namespace(no_baseline=True)) == cli.EX_FAIL
+
+
+def test_doctor_fails_when_markers_out_of_order(repo: Path, profile_path: Path):
+    """END before BEGIN in CLAUDE.md -> scrambled edit -> FAIL."""
+    _install(profile_path)
+    claude_md = repo / ".claude/CLAUDE.md"
+    from harness.hosts.claude import BEGIN, END
+    # Build a file where END literally precedes BEGIN.
+    claude_md.write_text(f"preamble\n{END}\nmiddle\n{BEGIN}\npostamble\n")
+    assert cli.cmd_doctor(Namespace(no_baseline=True)) == cli.EX_FAIL
+
+
+def test_doctor_ok_when_claude_md_block_intact(repo: Path, profile_path: Path):
+    """Clean install has an intact CLAUDE.md block -> doctor passes."""
+    _install(profile_path)
+    assert cli.cmd_doctor(Namespace(no_baseline=True)) == cli.EX_OK

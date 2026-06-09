@@ -85,10 +85,34 @@ def render(methodology_id: str, profile: dict, host: str, root: Path | None = No
 
 
 def merge_block(existing: str, block: str, begin: str, end: str) -> str:
-    """Idempotently insert/replace a marked block. Never clobbers surrounding content."""
-    if begin in existing and end in existing:
-        head = existing[: existing.index(begin)]
-        tail = existing[existing.index(end) + len(end):]
+    """Idempotently insert/replace a marked block. Never clobbers surrounding content.
+
+    Raises ValueError for malformed marker states so callers can surface a clear
+    message instead of silently producing corrupted output:
+      - Only one of BEGIN / END is present (half-deleted by hand).
+      - END appears before BEGIN (scrambled edit).
+    """
+    has_begin = begin in existing
+    has_end = end in existing
+    if has_begin != has_end:
+        missing = "END" if has_begin else "BEGIN"
+        present = "BEGIN" if has_begin else "END"
+        raise ValueError(
+            f"malformed harness block in target file: {present} marker found but "
+            f"{missing} marker is missing. Repair or delete the block manually, "
+            f"then re-run."
+        )
+    if has_begin and has_end:
+        begin_idx = existing.index(begin)
+        end_idx = existing.index(end)
+        if end_idx < begin_idx:
+            raise ValueError(
+                "malformed harness block in target file: END marker appears before "
+                "BEGIN marker (scrambled edit). Repair or delete the block manually, "
+                "then re-run."
+            )
+        head = existing[:begin_idx]
+        tail = existing[end_idx + len(end):]
         return head + block + tail
     sep = "" if existing.endswith("\n") or not existing else "\n"
     return existing + sep + "\n" + block + "\n"

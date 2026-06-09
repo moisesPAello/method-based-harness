@@ -244,12 +244,21 @@ def _audit_verify_gate(root: Path, profile: dict, timeout: float, runner=None) -
     return audit
 
 
-def _apply_block(root: Path, result) -> str:
+def _apply_block(root: Path, result) -> str | None:
+    """Merge the harness block into the target file.
+
+    Returns the relpath on success, or None on a malformed-marker error (the error
+    is already logged to stderr; callers should return EX_FAIL when they receive None).
+    """
     from . import compile as _compile
     target = root / result.block_path
     existing = target.read_text() if target.exists() else ""
     begin, end = result.block_markers
-    merged = _compile.merge_block(existing, result.block_text, begin, end)
+    try:
+        merged = _compile.merge_block(existing, result.block_text, begin, end)
+    except ValueError as exc:
+        log(f"error: {exc}")
+        return None
     _write(root, result.block_path, merged)
     return result.block_path
 
@@ -326,7 +335,8 @@ def cmd_init(args: argparse.Namespace) -> int:
         _write(root, rel, content)
     _write(root, ".harness/profile.yaml", prof_path.read_text())
     local = _scaffold_local(root, profile)
-    _apply_block(root, result)
+    if _apply_block(root, result) is None:
+        return EX_FAIL
     managed = {rel: manifest.hash_text(c) for rel, c in result.files.items()}
     manifest.save(root, managed, {"methodology": args.methodology, "host": args.host, "tool_version": __version__})
 
@@ -421,7 +431,8 @@ def cmd_upgrade(args: argparse.Namespace) -> int:
         else:
             log(f"orphaned but hand-edited, kept: {rel}  (use --force to remove)")
 
-    _apply_block(root, result)
+    if _apply_block(root, result) is None:
+        return EX_FAIL
     managed = {rel: manifest.hash_text(c) for rel, c in result.files.items()}
     manifest.save(root, managed, {"methodology": methodology, "host": host, "tool_version": __version__})
 
@@ -589,6 +600,43 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         if not ok:
             log(f"  FAIL: agent file would not register with host — {rel}: {reason}")
             problems.append(rel)
+
+    # .claude/CLAUDE.md block integrity check: if the install manifest exists, verify that
+    # the host instruction file has both markers present exactly once and in order.
+    # Missing block = install incomplete (FAIL); malformed markers = FAIL with precise reason.
+    if prior:
+        from .hosts.claude import BEGIN as _BLOCK_BEGIN, END as _BLOCK_END
+        claude_md = root / ".claude/CLAUDE.md"
+        if not claude_md.is_file():
+            log("  FAIL: .claude/CLAUDE.md is missing — install looks incomplete (re-run `harness init`).")
+            problems.append(".claude/CLAUDE.md missing")
+        else:
+            try:
+                claude_text = claude_md.read_text()
+            except OSError as exc:
+                log(f"  FAIL: cannot read .claude/CLAUDE.md: {exc}")
+                problems.append(".claude/CLAUDE.md unreadable")
+                claude_text = None
+            if claude_text is not None:
+                begin_count = claude_text.count(_BLOCK_BEGIN)
+                end_count = claude_text.count(_BLOCK_END)
+                if begin_count == 0 and end_count == 0:
+                    log("  FAIL: .claude/CLAUDE.md exists but the harness block is absent "
+                        "(no BEGIN/END markers) — install looks incomplete (re-run `harness init`).")
+                    problems.append(".claude/CLAUDE.md block absent")
+                elif begin_count != 1 or end_count != 1:
+                    log(f"  FAIL: .claude/CLAUDE.md has malformed harness block markers "
+                        f"(BEGIN×{begin_count}, END×{end_count}) — repair or delete the block "
+                        "manually, then re-run `harness upgrade`.")
+                    problems.append(".claude/CLAUDE.md markers malformed")
+                else:
+                    begin_idx = claude_text.index(_BLOCK_BEGIN)
+                    end_idx = claude_text.index(_BLOCK_END)
+                    if end_idx < begin_idx:
+                        log("  FAIL: .claude/CLAUDE.md harness block markers are out of order "
+                            "(END appears before BEGIN) — repair or delete the block manually, "
+                            "then re-run `harness upgrade`.")
+                        problems.append(".claude/CLAUDE.md markers out of order")
 
     # baseline snapshot of the runnable mechanical gate(s)
     if not args.no_baseline:
