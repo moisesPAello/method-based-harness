@@ -192,8 +192,10 @@ and this block.
 <!-- METHOD-HARNESS:END -->
 ```
 
-`.claude/settings.json` also pre-authorizes `Bash(python3 *)` and `Bash(pytest*)` so
-the agents can run the verify gate without a permission prompt.
+`.claude/settings.json` also pre-authorizes `Bash(python3)`, `Bash(python3 *)`,
+`Bash(pytest)`, and `Bash(pytest *)` so the agents can run the verify gate without a
+permission prompt (bare form covers no-argument invocations; space-star form covers
+invocations with arguments).
 
 ---
 

@@ -218,11 +218,17 @@ def _validate_roles(meth: dict, roles: dict) -> None:
 def _settings(profile: dict) -> str:
     sync = profile.get("docs", {}).get("sync_check")
     interp = profile.get("interpreter", "python3")
-    allow = [f"Bash({interp} *)"]
+    # Emit both bare and space-star forms for every token so that:
+    #   Bash({tok})   -> matches the command invoked with NO arguments
+    #   Bash({tok} *) -> matches the command invoked WITH one or more arguments
+    # We deliberately avoid Bash({tok}*) (no space) because that also matches
+    # binaries whose names only START with the token (e.g. "pytest-anything").
+    allow = [f"Bash({interp})", f"Bash({interp} *)"]
     verify_cmd = (profile.get("verify", {}) or {}).get("command", "")
     verify_tok = verify_cmd.split()[0] if verify_cmd else ""
-    if verify_tok:
-        allow.append(f"Bash({verify_tok}*)")   # derived from the profile, not hardcoded
+    if verify_tok and verify_tok != interp:
+        # Same two-form pattern: bare (no args) + space-star (with args).
+        allow += [f"Bash({verify_tok})", f"Bash({verify_tok} *)"]
     if sync:
         allow.append(f"Bash({sync})")
     hooks: dict = {}
