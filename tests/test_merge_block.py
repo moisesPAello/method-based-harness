@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from harness.compile import merge_block
 
 BEGIN, END = "<!-- BEGIN -->", "<!-- END -->"
@@ -49,3 +51,34 @@ def test_remerge_keeps_a_single_block() -> None:
     out = merge_block("head\n", _block("v1"), BEGIN, END)
     out = merge_block(out, _block("v2"), BEGIN, END)
     assert out.count(BEGIN) == 1 and out.count(END) == 1
+
+
+# --- half-deleted and scrambled marker error cases --------------------------------
+
+def test_raises_when_only_begin_present() -> None:
+    """User deleted END by hand — merge must refuse, not append a duplicate block."""
+    existing = f"some text\n{BEGIN}\nold content\n"
+    with pytest.raises(ValueError, match="END"):
+        merge_block(existing, _block("v2"), BEGIN, END)
+
+
+def test_raises_when_only_end_present() -> None:
+    """User deleted BEGIN by hand — merge must refuse, not append a duplicate block."""
+    existing = f"old content\n{END}\nmore text\n"
+    with pytest.raises(ValueError, match="BEGIN"):
+        merge_block(existing, _block("v2"), BEGIN, END)
+
+
+def test_raises_when_end_before_begin() -> None:
+    """Scrambled edit put END above BEGIN — merge must refuse, not produce garbled output."""
+    existing = f"preamble\n{END}\nmiddle\n{BEGIN}\npostamble\n"
+    with pytest.raises(ValueError, match="out of order|before BEGIN"):
+        merge_block(existing, _block("v2"), BEGIN, END)
+
+
+def test_error_message_mentions_repair() -> None:
+    """The ValueError message should guide the user on how to fix the problem."""
+    existing = f"{BEGIN}\nno closing marker"
+    with pytest.raises(ValueError) as exc_info:
+        merge_block(existing, _block("v2"), BEGIN, END)
+    assert "manually" in str(exc_info.value).lower() or "repair" in str(exc_info.value).lower()
