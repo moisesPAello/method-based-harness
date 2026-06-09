@@ -116,7 +116,7 @@ CLI now generates. A **TDD** methodology is sketched to demonstrate the pluggabi
 |---|---|
 | `harness/` | the CLI, compiler, and Claude renderer |
 | `harness/library/roles/` | agnostic role lenses (competence + posture) |
-| `harness/library/methodologies/` | methodology declarations (`sdd/`, `tdd/`) |
+| `harness/library/methodologies/` | methodology declarations (`sdd/`; `tdd/` sketch) |
 | `harness/library/examples/` | a worked project profile (also the selftest fixture) |
 | `docs/` | architecture, methodology authoring, role schema, findings log |
 
