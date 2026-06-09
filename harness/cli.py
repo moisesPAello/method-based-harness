@@ -305,6 +305,39 @@ def cmd_list(args: argparse.Namespace) -> int:
     return EX_OK
 
 
+def _resolve_methodology_host(args: argparse.Namespace, profile: dict) -> tuple[str, str] | None:
+    """Resolve the effective methodology and host, treating the profile as the source of
+    truth when it carries those keys. Returns ``(methodology, host)`` on success, or
+    ``None`` after printing an error if the user explicitly passed a conflicting flag.
+
+    Detection of an *explicit* flag uses sentinel defaults: if the arg equals the parser
+    default it was left at its default and defers to the profile silently; only a value
+    that differs from the default is treated as an explicit override."""
+    prof_meth = profile.get("methodology")
+    prof_host = profile.get("host")
+
+    flag_meth = args.methodology
+    flag_host = args.host
+
+    # Detect explicit (non-default) flags.
+    explicit_meth = flag_meth != _METHODOLOGY_DEFAULT
+    explicit_host = flag_host != _HOST_DEFAULT
+
+    # Determine effective values, erroring on explicit conflicts.
+    if prof_meth and explicit_meth and flag_meth != prof_meth:
+        log(f"init: --methodology {flag_meth!r} conflicts with profile's methodology: {prof_meth!r}.")
+        log("      Remove the flag to defer to the profile, or edit the profile to match.")
+        return None
+    if prof_host and explicit_host and flag_host != prof_host:
+        log(f"init: --host {flag_host!r} conflicts with profile's host: {prof_host!r}.")
+        log("      Remove the flag to defer to the profile, or edit the profile to match.")
+        return None
+
+    methodology = prof_meth if prof_meth else flag_meth
+    host = prof_host if prof_host else flag_host
+    return methodology, host
+
+
 def cmd_init(args: argparse.Namespace) -> int:
     from . import compile as _compile, manifest, validate
     root = Path.cwd()
@@ -331,8 +364,14 @@ def cmd_init(args: argparse.Namespace) -> int:
         log(f"init: {exc}")
         return EX_FAIL
 
+    # Fix #1: resolve methodology/host with profile as source of truth.
+    resolved = _resolve_methodology_host(args, profile)
+    if resolved is None:
+        return EX_FAIL
+    methodology, host = resolved
+
     try:
-        meth = _compile.load_methodology(_compile.library_root(), args.methodology)
+        meth = _compile.load_methodology(_compile.library_root(), methodology)
     except FileNotFoundError as exc:
         log(f"init: {exc}")
         return EX_FAIL
@@ -345,17 +384,45 @@ def cmd_init(args: argparse.Namespace) -> int:
         log(f"init: invalid profile ({prof_path}) — fix it and retry.")
         return EX_FAIL
 
-    result = _compile.render(args.methodology, profile, args.host)
-    planned = sorted(result.files) + [".harness/profile.yaml", result.block_path]
+    result = _compile.render(methodology, profile, host)
+
+    # Fix #3 (init dry-run): enumerate everything the real run would write.
+    # Local scaffold files are included only when they don't yet exist.
+    local_scaffold = [
+        ".harness/feature_list.json",
+        ".harness/progress/current.md",
+        ".harness/specs/.gitkeep",
+    ]
+    local_would_write = [f for f in local_scaffold if not (root / f).exists()]
+    # baseline.json is written by _audit_verify_gate when a verify command is present.
+    verify_cmd = ((profile.get("verify") or {}).get("command", "") or "").strip()
+    baseline_planned = [".harness/baseline.json"] if verify_cmd else []
+    planned = (
+        sorted(result.files)
+        + [".harness/profile.yaml", result.block_path]
+        + [f"(scaffold) {f}" for f in local_would_write]
+        + baseline_planned
+    )
 
     if args.dry_run:
-        log(f"[dry-run] init {args.methodology} × {args.host} into {root}")
+        log(f"[dry-run] init {methodology} × {host} into {root}")
         for p in planned:
             out(p)
         return EX_OK
 
+    # Fix #2: include profile target in clash refusal when --from-profile is used,
+    # the target exists, and its content would differ.
+    profile_target = root / ".harness/profile.yaml"
+    profile_clash = (
+        args.from_profile
+        and profile_target.exists()
+        and profile_target.read_text() != prof_path.read_text()
+    )
+
     # Protect pre-existing files (adoption of a repo with no manifest): don't clobber silently.
     clash = [rel for rel in result.files if (root / rel).exists()]
+    if profile_clash:
+        clash = [".harness/profile.yaml"] + clash
     if clash and not args.force:
         log("init: these files already exist — refusing to overwrite without --force:")
         for rel in sorted(clash):
@@ -370,7 +437,7 @@ def cmd_init(args: argparse.Namespace) -> int:
     if _apply_block(root, result) is None:
         return EX_FAIL
     managed = {rel: manifest.hash_text(c) for rel, c in result.files.items()}
-    manifest.save(root, managed, {"methodology": args.methodology, "host": args.host, "tool_version": __version__})
+    manifest.save(root, managed, {"methodology": methodology, "host": host, "tool_version": __version__})
 
     # Baseline-audit the mechanical gate: does it terminate, and is it red or green?
     # (finding #10). Advisory — never fails init. Graceful no-op without a verify command.
@@ -378,7 +445,7 @@ def cmd_init(args: argparse.Namespace) -> int:
 
     for p in sorted(result.files) + [".harness/profile.yaml", *local, result.block_path]:
         out(p)
-    log(f"init: installed {args.methodology} × {args.host} ({len(result.files)} managed files).")
+    log(f"init: installed {methodology} × {host} ({len(result.files)} managed files).")
     return EX_OK
 
 
@@ -441,6 +508,8 @@ def cmd_upgrade(args: argparse.Namespace) -> int:
             out(f"remove    {rel}")
         for rel in sorted(removes_edited):
             out(f"remove?   {rel}  (orphaned + hand-edited; kept unless --force)")
+        # Fix #3 (upgrade dry-run): always mention the CLAUDE.md block merge.
+        out(f"merge     {result.block_path}  (orchestrator block)")
         log(f"new={len(buckets['new'])} update={len(buckets['update'])} conflict={len(buckets['conflict'])} "
             f"remove={len(removes)} remove?={len(removes_edited)} unchanged={len(buckets['unchanged'])}")
         return EX_OK
@@ -757,6 +826,10 @@ the tool first, then run `harness upgrade` in each repo. (There is no `harness u
 """
 
 
+_METHODOLOGY_DEFAULT = "sdd"
+_HOST_DEFAULT = "claude"
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="harness",
@@ -768,8 +841,8 @@ def build_parser() -> argparse.ArgumentParser:
     sub = p.add_subparsers(dest="command", metavar="<command>")
 
     pi = sub.add_parser("init", help="install the harness into this repo")
-    pi.add_argument("--methodology", default="sdd", metavar="ID")
-    pi.add_argument("--host", default="claude", metavar="ID")
+    pi.add_argument("--methodology", default=_METHODOLOGY_DEFAULT, metavar="ID")
+    pi.add_argument("--host", default=_HOST_DEFAULT, metavar="ID")
     pi.add_argument("--from-profile", metavar="PATH", help="seed the project profile from a file")
     pi.add_argument("--dry-run", action="store_true", help="show what would change; write nothing")
     pi.add_argument("--force", action="store_true", help="overwrite an existing install")
