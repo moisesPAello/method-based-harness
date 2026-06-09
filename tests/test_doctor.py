@@ -71,6 +71,44 @@ def test_baseline_empty_when_no_sync_check(tmp_path: Path):
     assert (tmp_path / ".harness/baseline.json").is_file()  # still writes the snapshot
 
 
+# --- regression: init then doctor must not clobber the verify audit ---------------
+
+def test_doctor_preserves_verify_audit_after_init(
+    repo: Path, profile_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """Running `doctor` (without --no-baseline) after `init` must NOT clobber the
+    `verify` key that `_audit_verify_gate` wrote during init. This is the regression
+    for the bug where `_write_baseline` rebuilt the dict from scratch, silently
+    dropping any key it didn't own."""
+    from types import SimpleNamespace
+
+    # Stub _run_sync so doctor's docs-sync gate never spawns a real subprocess.
+    def _fake_sync(command, cwd, timeout):
+        return SimpleNamespace(returncode=0, stdout=b"", stderr=b"")
+
+    monkeypatch.setattr(cli, "_run_sync", _fake_sync)
+
+    # Install (conftest already stubs _run_verify; _audit_verify_gate records verify).
+    _install(profile_path)
+
+    # Verify that init wrote the verify audit into baseline.json.
+    baseline_path = repo / ".harness/baseline.json"
+    assert baseline_path.is_file(), "init must create .harness/baseline.json"
+    after_init = json.loads(baseline_path.read_text())
+    assert "verify" in after_init, "init must write 'verify' key into baseline.json"
+
+    # Run doctor without --no-baseline.
+    result = cli.cmd_doctor(Namespace(no_baseline=False))
+    assert result == cli.EX_OK
+
+    # The verify key must survive the doctor run.
+    after_doctor = json.loads(baseline_path.read_text())
+    assert "verify" in after_doctor, (
+        "doctor must not clobber the 'verify' audit written by init"
+    )
+    assert after_doctor["verify"] == after_init["verify"]
+
+
 # --- agent frontmatter registration checks (issue #13 follow-up) -----------------
 
 def test_doctor_ok_agent_frontmatter_healthy(repo: Path, profile_path: Path):
