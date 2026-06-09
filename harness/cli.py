@@ -24,6 +24,7 @@ import sys
 from pathlib import Path
 
 from . import __version__
+from ._util import resolve_interpreter
 
 EX_OK, EX_FAIL, EX_USAGE = 0, 1, 2
 
@@ -189,15 +190,25 @@ def _run_verify(command: str, cwd: Path, timeout: float):
 
 
 def _audit_verify_gate(root: Path, profile: dict, timeout: float, runner=None) -> dict | None:
-    """Baseline-audit the profile's mechanical gate (finding #10): run `verify.command`
-    once under the interpreter, bounded by a wall-clock `timeout`, and record whether it
-    TERMINATES and its red/green baseline. Writes the result into LOCAL state
+    """Baseline-audit the profile's mechanical gate (finding #10): run ``verify.command``
+    once under the interpreter, bounded by a wall-clock ``timeout``, and record whether it
+    TERMINATES and its red/green baseline.  Writes the result into LOCAL state
     (.harness/baseline.json, never a managed file) so a later reviewer diffs against a
     known baseline instead of re-deriving it each feature.
 
     Returns the audit dict, or None when there is no verify command (graceful skip).
     Non-termination within the cap is a loud WARNING, never a hard failure — the timeout
-    could be a slow-but-valid suite, and init must not hang or fall over on it."""
+    could be a slow-but-valid suite, and init must not hang or fall over on it.
+
+    Interpreter pinning rules (mirrors how agents actually invoke the gate):
+    - ``python``/``python3`` prefix → replace with ``<interpreter>``
+    - ``pytest`` prefix + python interpreter → rewrite as ``<interpreter> -m pytest ...``
+
+    The second rule is the canonical case: ``verify.command: "pytest -q"`` with
+    ``interpreter: ".venv/bin/python"`` (see library/examples/sella-cruce/profile.yaml).
+    Without it the audit runs PATH ``pytest`` while agents run ``<interpreter> -m pytest``,
+    making the audit green when the agents' run is red.
+    """
     import json, datetime, subprocess
     command = ((profile.get("verify") or {}).get("command", "") or "").strip()
     if not command:
@@ -205,12 +216,18 @@ def _audit_verify_gate(root: Path, profile: dict, timeout: float, runner=None) -
     if runner is None:
         runner = _run_verify
 
-    interp = (profile.get("interpreter") or "python3").strip()
-    # Run the gate the way the agents will: pinned under the profile's interpreter when
-    # the command names a bare `python`/`python3`, so the audit reflects the real run.
+    interp = resolve_interpreter(profile)
+    # Run the gate the way the agents will: pinned under the profile's interpreter.
+    # Rule 1: bare python/python3 prefix → replace with the pinned interpreter.
+    # Rule 2: pytest prefix with a python interpreter → rewrite as `<interp> -m pytest ...`
+    #   so the audit reflects the real virtualenv run, not whatever `pytest` is on PATH.
     full = command
-    if interp and command.split()[0] in ("python", "python3"):
+    first = command.split()[0]
+    if first in ("python", "python3"):
         full = f"{interp} {' '.join(command.split()[1:])}".rstrip()
+    elif first == "pytest" and ("python" in interp.split("/")[-1]):
+        rest = command.split()[1:]
+        full = " ".join([interp, "-m", "pytest"] + rest)
 
     audit: dict = {"command": command, "interpreter": interp, "timeout_s": timeout}
     log(f"init: baseline-auditing the verify gate (cap {int(timeout)}s): {command}")
@@ -563,13 +580,15 @@ def cmd_doctor(args: argparse.Namespace) -> int:
 
     # interpreter + verify resolvability (warnings — environment-dependent)
     import shutil
-    interp = profile.get("interpreter", "python3")
+    interp = resolve_interpreter(profile)
     interp_bin = interp.split()[0] if interp else ""
     if interp_bin and not (shutil.which(interp_bin) or (root / interp_bin).exists()):
         log(f"  warn: interpreter '{interp}' not found on PATH or in the repo")
     vtok = ((profile.get("verify") or {}).get("command", "") or "").split()
-    if vtok and not shutil.which(vtok[0]):
-        log(f"  warn: verify command '{vtok[0]}' not found on PATH")
+    # Check both PATH and repo-relative path (same logic as the interpreter check above),
+    # so a repo-local binary like ".venv/bin/pytest" does not warn spuriously.
+    if vtok and not (shutil.which(vtok[0]) or (root / vtok[0]).exists()):
+        log(f"  warn: verify command '{vtok[0]}' not found on PATH or in the repo")
 
     # agent frontmatter registration check: every .claude/agents/*.md must have
     # parseable frontmatter with name/description/tools and a single-line description —

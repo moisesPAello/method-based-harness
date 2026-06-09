@@ -16,6 +16,8 @@ from __future__ import annotations
 import json
 import sys
 
+from .._util import resolve_interpreter
+
 BEGIN = "<!-- METHOD-HARNESS:BEGIN (managed — do not hand-edit; `harness upgrade` overwrites) -->"
 END = "<!-- METHOD-HARNESS:END -->"
 
@@ -70,7 +72,7 @@ def _gate_checks(meth: dict, name: str) -> list[str]:
 
 
 def _leader(role, meth, profile) -> str:
-    interp = profile.get("interpreter", "python3")
+    interp = resolve_interpreter(profile)
     verify = profile.get("verify", {}).get("command", "the project's test command")
     esc = meth.get("escalation", {})
     esc_lines = _bullets([f"**{k}**: {' → '.join(v)}" for k, v in esc.items()])
@@ -217,7 +219,7 @@ def _validate_roles(meth: dict, roles: dict) -> None:
 
 def _settings(profile: dict) -> str:
     sync = profile.get("docs", {}).get("sync_check")
-    interp = profile.get("interpreter", "python3")
+    interp = resolve_interpreter(profile)
     allow = [f"Bash({interp} *)"]
     verify_cmd = (profile.get("verify", {}) or {}).get("command", "")
     verify_tok = verify_cmd.split()[0] if verify_cmd else ""
