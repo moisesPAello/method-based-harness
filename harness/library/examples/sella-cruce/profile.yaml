@@ -5,6 +5,13 @@ project: sella-cruce
 methodology: sdd
 host: claude
 
+# Optional backlog-edge tracker. Default (omitted / `none`) = disk-only, no network/auth,
+# byte-for-byte unchanged. Opt in with `tracker: github-issues` to let the LEADER sync the
+# backlog edge via `harness tracker sync` (intake: issues seed features; outtake: a `done`
+# feature closes its issue with artifact links). Disk stays the source of truth either way.
+# tracker: none
+# tracker_options: {label: harness, limit: 100}   # only read by github-issues
+
 # Finding #1 (docs/findings.md): capture the interpreter at init — the repo's docs
 # claimed a Windows venv but reality was "no python on PATH". Pin it so gate
 # commands are deterministic, not re-derived each session.

@@ -76,6 +76,16 @@ def _leader(role, meth, profile) -> str:
     verify = profile.get("verify", {}).get("command", "the project's test command")
     esc = meth.get("escalation", {})
     esc_lines = _bullets([f"**{k}**: {' → '.join(v)}" for k, v in esc.items()])
+    # Tracker is an OPTIONAL backlog-edge seam. Emit the section ONLY when the profile
+    # opts in, so a `tracker: none` (default) render is byte-for-byte unchanged.
+    tracker = (profile.get("tracker") or "none")
+    tracker_block = "" if tracker == "none" else f"""
+## Backlog edge (tracker: {tracker}) — you alone may sync it
+On-disk state is the source of truth; the tracker only syncs the backlog edge. At the
+START of a session you MAY run `harness tracker sync` (foreground) to intake new issues
+as `pending` features and to close issues for features that reached `done`. Subagents
+never touch the tracker. A tracker error is non-fatal — disk state is authoritative.
+"""
     return f"""{_front(role, "Orchestrates; never edits src/tests.")}
 # leader (orchestrator)
 
@@ -100,7 +110,7 @@ Act on the first feature that is not `done`/`blocked`, by status:
 
 ## Escalation (the roster is a menu, not a cast)
 {esc_lines}
-
+{tracker_block}
 ## Handoff (anti-telephone)
 Tell each subagent to write its product to a file and return ONE line
 (e.g. `done -> .harness/progress/impl_<feature>.md`). Act on references, not pasted content.

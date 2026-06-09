@@ -10,7 +10,15 @@ only external reads are the user's own repo files (for the manifest / merge).
     harness list     [methodologies|hosts|roles]
     harness status
     harness doctor   [--no-baseline]
+    harness tracker  sync
     harness selftest
+
+The optional `tracker:` profile key picks a backlog-edge adapter (default `none` =
+disk-only, byte-for-byte unchanged, no network/auth). `harness tracker sync` is the
+ONLY command that may reach a tracker, and only the leader/orchestrator should run it;
+with `tracker: none` it is a no-op. State machine, gates and traceability never leave
+disk — a tracker only seeds new backlog features (intake) and closes issues for `done`
+features with artifact links (outtake).
 
 I/O: stdout is data (changed-file list, the listing), stderr is logs (progress,
 verdicts, warnings). Exit 0 ok, non-zero failure; `upgrade` exits non-zero when it
@@ -167,6 +175,9 @@ def _scaffold_profile(root: Path, methodology_id: str) -> str:
         f"project: {root.name}\n"
         f"methodology: {methodology_id}\n"
         f"host: claude\n\n"
+        f"# Optional backlog-edge tracker (default none = disk-only, no network/auth).\n"
+        f"# Opt in with `tracker: github-issues` to let the leader run `harness tracker sync`.\n"
+        f"# tracker: none\n\n"
         f"# Interpreter the gate commands run under — pin it so they're deterministic.\n"
         f'interpreter: "{interp}"\n\n'
         f"verify:\n{verify_line}\n\n"
@@ -802,6 +813,77 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     return EX_OK
 
 
+def _merge_intake(features: list, incoming: list[dict]) -> tuple[list, int]:
+    """Merge tracker `incoming` feature dicts into `features`, deduped by `id`. Existing
+    features are never mutated (disk stays the source of truth for execution); only
+    genuinely-new backlog items are appended. Returns (merged_list, num_added)."""
+    known = {f.get("id") for f in features if isinstance(f, dict)}
+    added = 0
+    for f in incoming:
+        fid = f.get("id")
+        if fid is None or fid in known:
+            continue
+        features.append(f)
+        known.add(fid)
+        added += 1
+    return features, added
+
+
+def cmd_tracker(args: argparse.Namespace) -> int:
+    """The ONLY entrypoint that touches a tracker (the leader/orchestrator's backlog
+    sync). A no-op when `tracker: none` (the default) — no `gh`/network code runs. Never
+    fails the harness on a tracker error: disk state is authoritative and untouched.
+
+    `sync` does intake (issues -> new pending features) then outtake (done -> close
+    issue with artifact links). The github-issues adapter degrades gracefully when `gh`
+    is missing/unauthenticated.
+    """
+    import json
+    from . import trackers
+    root = Path.cwd()
+    prof_path = root / ".harness/profile.yaml"
+    if not prof_path.is_file():
+        log("tracker: no .harness/profile.yaml here — run `init` first.")
+        return EX_FAIL
+    profile = _load_yaml(prof_path)
+
+    name = trackers.tracker_name(profile)
+    if name == trackers.NONE:
+        log("tracker: none — disk-only, nothing to sync (this is the default).")
+        return EX_OK
+
+    tracker = trackers.for_profile(profile)
+    runner = getattr(args, "_run", None)  # injectable for tests; real `gh` otherwise
+
+    fl = root / ".harness/feature_list.json"
+    if not fl.is_file():
+        log("tracker: no .harness/feature_list.json — run `init` first.")
+        return EX_FAIL
+    data = json.loads(fl.read_text())
+    features = data.get("features", []) or []
+
+    # intake — seed new backlog items (never overwrite an in-flight feature).
+    incoming = tracker.intake(root, profile, run=runner)
+    features, added = _merge_intake(features, incoming)
+    if added:
+        data["features"] = features
+        _write(root, ".harness/feature_list.json", json.dumps(data, indent=2) + "\n")
+        log(f"tracker: intake seeded {added} new feature(s) from {name}.")
+        out(".harness/feature_list.json")
+    else:
+        log(f"tracker: intake found no new features from {name}.")
+
+    # outtake — close the issue for each feature that reached `done`.
+    closed = 0
+    for f in features:
+        if isinstance(f, dict) and f.get("status") == "done":
+            if tracker.outtake(root, profile, f, run=runner):
+                closed += 1
+                out(f"closed: {f.get('id')}")
+    log(f"tracker: outtake closed {closed} issue(s) for done feature(s).")
+    return EX_OK
+
+
 def cmd_selftest(args: argparse.Namespace) -> int:
     from . import compile as _compile
     root = _compile.library_root()
@@ -882,6 +964,12 @@ def build_parser() -> argparse.ArgumentParser:
     pd = sub.add_parser("doctor", help="diagnose an installed harness; snapshot baseline gates")
     pd.add_argument("--no-baseline", action="store_true", help="skip running the profile's mechanical gate(s)")
     pd.set_defaults(func=cmd_doctor)
+
+    pt = sub.add_parser("tracker", help="optional backlog-edge sync with an issue tracker (leader-only)")
+    tsub = pt.add_subparsers(dest="tracker_command", metavar="<subcommand>")
+    pts = tsub.add_parser("sync", help="intake issues -> features, outtake done -> close issues (no-op if tracker: none)")
+    pts.set_defaults(func=cmd_tracker)
+    pt.set_defaults(func=lambda a: (log("tracker: a subcommand is required (try `tracker sync`)."), EX_USAGE)[1])
 
     ps = sub.add_parser("selftest", help="render a bundled fixture and verify output (offline)")
     ps.set_defaults(func=cmd_selftest)
