@@ -188,6 +188,14 @@ def _run_verify(command: str, cwd: Path, timeout: float):
     return subprocess.run(command, shell=True, cwd=cwd, capture_output=True, timeout=timeout)
 
 
+def _run_sync(command: str, cwd: Path, timeout: float):
+    """Run the docs sync_check `command` once under a shell, bounded by `timeout` seconds.
+    Returns the completed process. Injectable so tests can fake it without spawning anything
+    (mirrors _run_verify; used by _write_baseline)."""
+    import subprocess
+    return subprocess.run(command, shell=True, cwd=cwd, capture_output=True, timeout=timeout)
+
+
 def _audit_verify_gate(root: Path, profile: dict, timeout: float, runner=None) -> dict | None:
     """Baseline-audit the profile's mechanical gate (finding #10): run `verify.command`
     once under the interpreter, bounded by a wall-clock `timeout`, and record whether it
@@ -500,22 +508,39 @@ def cmd_status(args: argparse.Namespace) -> int:
     return EX_OK
 
 
-def _write_baseline(root: Path, profile: dict) -> dict:
+def _write_baseline(root: Path, profile: dict, runner=None) -> dict:
     """Snapshot the runnable mechanical gate(s) so the reviewer can diff against a known
     baseline (finding #3) instead of re-deriving 'pre-existing red' each feature. Today the
     one generically-runnable gate is the profile's `docs.sync_check`. Writes LOCAL state
-    (.harness/baseline.json), never a managed file. Returns the gates dict."""
-    import json, subprocess, datetime
+    (.harness/baseline.json), never a managed file. Returns the gates dict.
+
+    Read-merges into any existing baseline.json so sibling keys written by other
+    callers (e.g. the `verify` audit written by `_audit_verify_gate` during `init`)
+    are preserved — only `generated` and `gates` are updated."""
+    import json, datetime, subprocess
+    if runner is None:
+        runner = _run_sync
     sync = (profile.get("docs") or {}).get("sync_check")
     gates: dict = {}
     if sync:
         try:
-            r = subprocess.run(sync, shell=True, cwd=root, capture_output=True, timeout=120)
+            r = runner(sync, root, 120)
             gates["docs_sync"] = {"command": sync, "exit": r.returncode, "red": r.returncode != 0}
         except (subprocess.SubprocessError, OSError) as exc:
             gates["docs_sync"] = {"command": sync, "error": str(exc)}
-    baseline = {"generated": datetime.datetime.now().isoformat(timespec="seconds"), "gates": gates}
-    _write(root, ".harness/baseline.json", json.dumps(baseline, indent=2) + "\n")
+
+    # Read-merge: preserve any keys already in the file (e.g. `verify` from init)
+    # and only overwrite the parts this function is responsible for.
+    baseline_path = root / ".harness/baseline.json"
+    existing: dict = {}
+    if baseline_path.is_file():
+        try:
+            existing = json.loads(baseline_path.read_text())
+        except (ValueError, OSError):
+            existing = {}
+    existing["generated"] = datetime.datetime.now().isoformat(timespec="seconds")
+    existing["gates"] = gates
+    _write(root, ".harness/baseline.json", json.dumps(existing, indent=2) + "\n")
     return gates
 
 
