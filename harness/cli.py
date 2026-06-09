@@ -71,7 +71,10 @@ def _frontmatter_ok(text: str) -> tuple[bool, str]:
 
 def _load_yaml(path: Path) -> dict:
     import yaml
-    return yaml.safe_load(path.read_text())
+    try:
+        return yaml.safe_load(path.read_text())
+    except yaml.YAMLError as exc:
+        raise ValueError(f"{path}: YAML parse error: {exc}") from exc
 
 
 def _load_features(root: Path) -> list:
@@ -322,7 +325,11 @@ def cmd_init(args: argparse.Namespace) -> int:
             log(f"init: no profile yet — wrote a starter {rel}")
             log("      edit it (verify command, interpreter, gate_profiles), then re-run `harness init`.")
             return EX_FAIL
-    profile = _load_yaml(prof_path)
+    try:
+        profile = _load_yaml(prof_path)
+    except ValueError as exc:
+        log(f"init: {exc}")
+        return EX_FAIL
 
     try:
         meth = _compile.load_methodology(_compile.library_root(), args.methodology)
@@ -382,7 +389,11 @@ def cmd_upgrade(args: argparse.Namespace) -> int:
     if not prof_path.is_file():
         log("upgrade: no .harness/profile.yaml here — run `init` first.")
         return EX_FAIL
-    profile = _load_yaml(prof_path)
+    try:
+        profile = _load_yaml(prof_path)
+    except ValueError as exc:
+        log(f"upgrade: {exc}")
+        return EX_FAIL
     methodology = profile.get("methodology", "sdd")
     host = profile.get("host", "claude")
 
@@ -492,7 +503,11 @@ def cmd_status(args: argparse.Namespace) -> int:
         log("status: no .harness/feature_list.json here — run `init` first.")
         return EX_FAIL
 
-    data = json.loads(fl.read_text())
+    try:
+        data = json.loads(fl.read_text())
+    except (ValueError, OSError) as exc:
+        log(f"status: {fl}: JSON parse error: {exc}")
+        return EX_FAIL
     features = data.get("features", []) or []
 
     # Optional: load the methodology to annotate the next expected action. Best-effort —
@@ -584,7 +599,11 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         return EX_FAIL
 
     problems: list[str] = []
-    profile = _load_yaml(prof_path)
+    try:
+        profile = _load_yaml(prof_path)
+    except ValueError as exc:
+        log(f"doctor: {exc}")
+        return EX_FAIL
     methodology = profile.get("methodology", "sdd")
 
     # profile validity (same checks as init/upgrade)
@@ -746,8 +765,6 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     p.add_argument("--version", action="version", version=f"harness {__version__}")
-    p.add_argument("-v", "--verbose", action="store_true", help="more detail on stderr")
-    p.add_argument("-q", "--quiet", action="store_true", help="errors only on stderr")
     sub = p.add_subparsers(dest="command", metavar="<command>")
 
     pi = sub.add_parser("init", help="install the harness into this repo")
