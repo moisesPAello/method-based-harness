@@ -160,6 +160,67 @@ class TestSettingsJson:
         settings = json.loads(result.files[".claude/settings.json"])
         assert isinstance(settings, dict)
 
+    def test_permission_patterns_normalized_two_form(self):
+        """Regression (issue F): each token must appear as both Bash({tok}) (bare,
+        no-args invocation) AND Bash({tok} *) (with-args invocation).
+
+        Bash({tok}*) (no space) is intentionally avoided because it would match
+        binaries whose names only START with the token (e.g. 'pytest-anything').
+        Bash({tok} *) (space before *) won't match a no-args bare invocation, so
+        both forms are required."""
+        import json
+        bare_profile = {
+            "project": "test",
+            "methodology": "sdd",
+            "host": "claude",
+            "interpreter": "python3",
+            "verify": {"command": "pytest -q"},
+            "constitution": [],
+            "gate_profiles": {
+                "default": {
+                    "impl_complete": ["tests pass"],
+                    "review_passed": ["tests pass"],
+                }
+            },
+        }
+        result = _compile.render("sdd", bare_profile, "claude")
+        settings = json.loads(result.files[".claude/settings.json"])
+        allow = settings.get("permissions", {}).get("allow", [])
+        # Both forms must be present for the interpreter token.
+        assert "Bash(python3)" in allow, \
+            "bare Bash(python3) missing from allow list"
+        assert "Bash(python3 *)" in allow, \
+            "Bash(python3 *) missing from allow list"
+        # Both forms must be present for the verify token.
+        assert "Bash(pytest)" in allow, \
+            "bare Bash(pytest) missing from allow list"
+        assert "Bash(pytest *)" in allow, \
+            "Bash(pytest *) missing from allow list"
+        # The old glob form must NOT appear (would match 'pytest-anything').
+        assert "Bash(pytest*)" not in allow, \
+            "Bash(pytest*) (no-space glob) must not appear — it matches unrelated binaries"
+        # The old single-form for interpreter must not appear alone without bare form.
+        # (python3 * without bare form was the old pattern — ensure bare is now there).
+        # Both forms covered above, so just verify the allow list length is sensible.
+        assert len(allow) >= 4, \
+            f"expected at least 4 allow entries (bare+space for 2 tokens), got {allow}"
+
+    def test_permission_patterns_no_space_glob_absent_for_verify_tok(self, profile_path: Path):
+        """Regression (issue F): the Bash({tok}*) form (no space before *) must never
+        appear for any profile-derived token — it over-matches sibling binaries."""
+        import json
+        result = _render(profile_path)
+        settings = json.loads(result.files[".claude/settings.json"])
+        allow = settings.get("permissions", {}).get("allow", [])
+        for entry in allow:
+            # Entries of the form Bash(xyz*) where xyz has no space before * are forbidden.
+            # Legitimate forms are Bash(xyz) and Bash(xyz *) (space before star).
+            if entry.startswith("Bash(") and entry.endswith("*)") and " *)" not in entry:
+                raise AssertionError(
+                    f"allow list contains no-space glob form {entry!r} — "
+                    "this over-matches binaries that merely start with the token"
+                )
+
 
 # ---------------------------------------------------------------------------
 # 4. Folded-in fixes appear in GENERATED agents
