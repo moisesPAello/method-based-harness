@@ -121,7 +121,7 @@ demostrar la costura de intercambiabilidad.
 |---|---|
 | `harness/` | la CLI, el compilador y el renderizador de Claude |
 | `harness/library/roles/` | lentes de rol agnósticas (competencia + postura) |
-| `harness/library/methodologies/` | declaraciones de metodología (`sdd/`, `tdd/`) |
+| `harness/library/methodologies/` | declaraciones de metodología (`sdd/`; esbozo `tdd/`) |
 | `harness/library/examples/` | un perfil de proyecto real (también el fixture de selftest) |
 | `docs/` | arquitectura, autoría de metodologías, esquema de roles, bitácora de hallazgos |
 

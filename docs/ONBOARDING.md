@@ -65,6 +65,12 @@ interpreter: "python3"
 verify:
   command: "pytest -q"          # detected
 
+# Docs-parity gate (OPTIONAL). Set `sync_check` to a command that proves the docs
+# match the code and `init` compiles it into a Stop hook (runs before a feature can
+# close) and the reviewer cites it. Leave it "" and no docs hook is wired.
+docs:
+  sync_check: ""              # TODO (optional): e.g. "python scripts/check_docs_sync.py"
+
 # Always-on rules, compiled to host hooks. [] = none. Each entry needs an `id`.
 constitution: []
 
@@ -129,7 +135,6 @@ harness init --methodology sdd --host claude
 ```
 init: baseline-auditing the verify gate (cap 120s): pytest -q
 init: verify gate terminated, baseline green (exit 0) -> .harness/baseline.json
-init: installed sdd × claude (7 managed files).
 .claude/agents/implementer.md
 .claude/agents/leader.md
 .claude/agents/reviewer.md
@@ -137,11 +142,13 @@ init: installed sdd × claude (7 managed files).
 .claude/settings.json
 .harness/CHECKPOINTS.md
 .harness/methodology.md
+.harness/methodology.yaml
 .harness/profile.yaml
 .harness/feature_list.json
 .harness/progress/current.md
 .harness/specs/.gitkeep
 .claude/CLAUDE.md
+init: installed sdd × claude (8 managed files).
 ```
 
 (Stdout is the file list; stderr is the progress lines. Exit 0.)
@@ -158,6 +165,7 @@ init: installed sdd × claude (7 managed files).
 | `.claude/agents/reviewer.md` | Reviewer agent: independent judge, re-runs gates |
 | `.claude/settings.json` | Permissions allowlist and Stop hook (constitution's mechanical gates) |
 | `.harness/methodology.md` | The SDD process doc (source for agents to read at startup) |
+| `.harness/methodology.yaml` | Structured state machine (phases/gates/states) for agents and tooling to parse |
 | `.harness/CHECKPOINTS.md` | Definition of "correct final state" (the reviewer's checklist) |
 
 **Local state files** — created once; never overwritten by `upgrade`; yours to edit:
