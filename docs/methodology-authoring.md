@@ -45,11 +45,19 @@ gate, mid-flow.
 Express the methodology as phases. Each phase entry binds a role:
 
 ```
-state · driver(role id) · reads(files) · writes(files) · exit_gate · to(state) [· halt | on_reject]
+state · driver(role id) · reads(files) · writes(files) · exit_gate · to(state) [· halt | on_reject | records]
 ```
 
 Stack the phases and you have both the state machine and the per-role bindings — they
 are the same thing viewed two ways.
+
+**Every transition needs a writer.** `records:` names the role that writes the `to:`
+status into `feature_list.json`; it defaults to the driver. When the driver is
+read-only (`human`, or a judge like `reviewer`), set `records:` to a state-writing
+role — typically the orchestrator, which *transcribes* the outcome (an approval, a
+verdict) without deciding it. The Claude renderer warns at compile time about any
+transition whose recorder cannot write state (issue #33: SDD's `in_review → done`
+shipped with no writer, leaving the terminal status change a manual step).
 
 ## Requirements style (SDD example): EARS
 

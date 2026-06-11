@@ -265,3 +265,100 @@ Run metrics (static): 17 new assertions, 78 total passing. Friction count: 3 new
 (#12 Stop hook discoverability, #13 reviewer placeholder, #14 methodology.yaml absent).
 Highest-leverage: **#13** — a live reviewer would see `'the docs/parity check'` and be unable
 to run it, producing confusing output on every fresh install that lacks `docs.sync_check`.
+
+## 2026-06-11 — Run 3: first live multi-agent run incl. the reject path (issue #33). Grade: A− / loop holds, one ownership gap
+
+First **live** orchestrated run on CLI-generated output — the validation issue #6's static
+pass explicitly deferred. A throwaway pytest repo (`stringkit`) was installed via `harness
+init` (auto-detected `.venv/bin/python` + `pytest -q`; baseline audited green; `doctor: ok`)
+and **three features** were driven end-to-end by a session acting as `leader`, dispatching
+real `spec_author` / `implementer` / `reviewer` subagents with the compiled role contracts.
+
+### What held, live
+- Full flow ×3: `pending → spec_ready → ⏸ HUMAN → in_progress → in_review → done`.
+- spec_author surfaced real `[NEEDS CLARIFICATION]` markers (2, then 3) instead of guessing;
+  the human resolved them in the spec files; none survived into `in_progress`.
+- On-disk handoff: every subagent returned a one-line reference; no pasted content.
+- **The reject path bit (the load-bearing test).** A feature was seeded with correct code but
+  a test file covering only R1/R2 while the impl report *falsely claimed* R3/R4 coverage and
+  a task was falsely `[x]` — with the mechanical gate green. A fresh reviewer **rejected**
+  it (`CHANGES_REQUESTED`), citing the missing asserting tests and the false claims, and
+  correctly noted the implementation itself was fine. Then `on_reject → in_progress → fix →
+  fresh re-review → APPROVED`. The reviewer did not rubber-stamp a green suite.
+
+### New finding
+
+15. **`in_review → done` had no owner.** (issue #33) `methodology.yaml` declared
+    `driver: reviewer, to: done`, but the reviewer renders read-only (no Write/Edit; "never
+    fixes") and `leader.md` forbade "Mark a feature `done`" — so the terminal status write
+    was an unspecified manual step. Both live reviewers independently refused to touch
+    status ("Feature status NOT changed by reviewer").
+    → Fix (applied): phases declare **`records:`** — who writes the `to:` status (defaults
+    to the driver); SDD assigns the leader as recorder for every read-only-driver phase. The
+    leader gains a `record_state` capability (maps to `Edit` only — flips a status, can't
+    author files) and its rule is rescoped from "never mark done" to "never DECIDE done":
+    it transcribes the reviewer's `APPROVED ->` / `CHANGES_REQUESTED ->` verdict. The
+    renderer now warns at compile time about any transition whose recorder cannot write
+    state, and selftest pins the verdict-recording fix.
+
+Run metrics: 2 spec_authors (~20k/~24k tok), 3 implementers (~19k/~19k/~17k tok), 4 reviewers
+(1 reject + 3 approve, ~19–24k tok each), 2 human gates exercised, 1 seeded defect caught,
+0 incorrect outcomes shipped. Highest-leverage observation: independent re-verification
+(reviewer re-reading the actual test file instead of the impl report) is what caught the
+false traceability claim — the property the whole design bets on, now seen working live.
+
+## 2026-06-11 — Run 4: upgrade propagation live + model-sensitivity of the gates. Grade: A− / gates carry weak models, spec authoring doesn't
+
+Same demo repo as run 3, two questions: does `upgrade` propagate a real library fix into a
+live install, and do the gates still hold when the subagents run on the **cheapest model**
+(claude-haiku) instead of the strongest? Two more features (`wrap`, `center`) driven
+end-to-end with all three roles on haiku.
+
+### Upgrade propagation (the #33 fix, against a real install)
+`upgrade --dry-run` predicted exactly `update=4` (leader.md, settings.json,
+methodology.md/.yaml); the real run matched; all local state (5 features, specs, progress)
+byte-preserved. The re-rendered leader carries the verdict-recording instructions and the
+`Edit` tool. The propagation contract held against a live repo, not just the fixture.
+
+### All-haiku loop (`wrap`)
+- **spec_author (haiku, ~21k tok):** produced the spec and surfaced one real
+  `[NEEDS CLARIFICATION]` marker — but also emitted one requirement (R10) that
+  **contradicted** another (R5's greedy packing), dropped the EARS SHALL-patterns, and
+  violated the one-line handoff protocol (pasted its self-check into the return).
+- **The human gate caught R10.** Struck at approval, references scrubbed from design/tasks.
+  A weaker spec_author makes the approval gate MORE load-bearing — the design degrades
+  gracefully rather than unsafely.
+- **implementer (haiku, ~24k tok):** correct — survived independent adversarial probes
+  (greedy arithmetic, oversized words, whitespace collapse, width validation).
+- **reviewer (haiku, ~29k tok):** APPROVED, and the approval was warranted (leader
+  spot-checked the implementation before recording the verdict).
+
+### Reviewer skepticism on haiku (`center`) — the sharpest seeded defect yet
+Seeded: code violating R4 (odd padding placed LEFT; spec demands RIGHT) with a green test
+**asserting the buggy value** — catching it requires checking the assertion's expected
+value against the requirement's formula, not test existence (run 3's defect was missing
+tests; this one is a lying test). **The haiku reviewer caught it**: worked
+floor(3/2)/ceil(3/2) by hand, rejected with the exact line, and flagged BOTH the code and
+the mirrored assertion. Then reject → haiku fix (~16k tok, 22s) → haiku re-review →
+APPROVED. Full reject loop on the cheapest model.
+
+### Findings
+
+16. **The gates carry weak models; the spec does not.** Both seeded defects (runs 3+4) were
+    caught because `review_passed` conditions are explicit verification procedures
+    ("the test actually asserts the behavior"), not vibes — the method encoded between
+    turns compensates for model capability. But spec quality tracked the model: haiku's
+    spec needed human repair (a contradictory requirement), the stronger model's needed
+    only marker resolution. Operating guidance: cheap models for implementer/reviewer;
+    spend capability (or human attention) at the spec gate — sharpens finding #4
+    ("spec quality = acceptance quality").
+
+17. **The one-line handoff protocol is advisory; the files are the contract.** Haiku
+    ignored "return EXACTLY one line" about half the time. Harmless in practice: the
+    on-disk product and the embedded file reference were always present, so the
+    anti-telephone design held anyway. Worth knowing when budgeting orchestrator context.
+
+Run metrics: 1 haiku spec_author (~21k), 2 haiku implementers (~24k/~16k), 3 haiku
+reviewers (~29k/~20k/~19k; 1 reject + 2 approve), 1 contradictory spec requirement caught
+at the human gate, 1 seeded lying-test defect caught by the cheapest reviewer, 0 incorrect
+outcomes shipped. Full feature cycle on haiku: ~70–90k subagent tokens.

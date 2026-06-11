@@ -360,3 +360,66 @@ class TestMethodologyYamlEmitted:
         raw = (lib_root / "methodologies/sdd/methodology.yaml").read_text()
         assert result.files[".harness/methodology.yaml"] == raw, \
             "emitted methodology.yaml diverges from the library source (should be verbatim)"
+
+
+# ---------------------------------------------------------------------------
+# 8. done-transition ownership — every transition has a writer (issue #33)
+# ---------------------------------------------------------------------------
+
+class TestDoneTransitionOwnership:
+    """Regression for #33: `in_review -> done` had no owner — the reviewer renders
+    read-only (no Write/Edit) and the leader was forbidden to mark `done`, so the
+    terminal status write was an unspecified manual step in every live run. The fix:
+    phases declare `records:` (defaulting to the driver), the leader records verdicts
+    via the `record_state` capability, and the renderer warns on unwritable transitions."""
+
+    def test_every_phase_transition_has_a_state_writing_recorder(self):
+        from harness.hosts.claude import _can_write_state
+        root = _compile.library_root()
+        meth = _compile.load_methodology(root, "sdd")
+        roles = _compile.load_roles(root)
+        for ph in meth["phases"]:
+            recorder = ph.get("records", ph["driver"])
+            assert recorder != "human", \
+                f"phase {ph['state']!r}: 'human' cannot write the transition; set records:"
+            assert recorder in roles, f"phase {ph['state']!r}: recorder {recorder!r} has no role lens"
+            assert _can_write_state(roles[recorder]), \
+                f"phase {ph['state']!r}: recorder {recorder!r} cannot write state"
+
+    def test_in_review_phase_records_leader(self):
+        meth = _compile.load_methodology(_compile.library_root(), "sdd")
+        in_review = next(p for p in meth["phases"] if p["state"] == "in_review")
+        assert in_review.get("records") == "leader", \
+            "in_review -> done must be recorded by the leader (transcribing the verdict)"
+
+    def test_leader_frontmatter_grants_edit_but_not_write(self, profile_path: Path):
+        """record_state maps to Edit only: enough to flip a status in feature_list.json,
+        not enough to author new files."""
+        front = _frontmatter(_agent(_render(profile_path), "leader"))
+        tools = [t.strip() for t in front["tools"].split(",")]
+        assert "Edit" in tools, "leader.md lacks the Edit tool; it cannot record transitions"
+        assert "Write" not in tools, "leader.md must not get Write from record_state"
+
+    def test_leader_body_instructs_verdict_recording(self, profile_path: Path):
+        led = _agent(_render(profile_path), "leader")
+        assert "APPROVED ->" in led and "CHANGES_REQUESTED ->" in led, \
+            "leader.md does not instruct recording the reviewer's verdict"
+        assert "Mark a feature `done`." not in led, \
+            "leader.md still carries the old unconditional 'never mark done' rule"
+        assert "transcribed from a reviewer" in led, \
+            "leader.md 'You never' must scope the rule to deciding, not recording"
+
+    def test_renderer_warns_when_transition_has_no_writer(self, profile_path: Path, capsys):
+        """A methodology whose phase recorder cannot write state must surface a warning
+        (the compile-time check), not silently render an unwritable transition."""
+        import copy
+        root = _compile.library_root()
+        meth = copy.deepcopy(_compile.load_methodology(root, "sdd"))
+        in_review = next(p for p in meth["phases"] if p["state"] == "in_review")
+        in_review.pop("records")  # recorder falls back to the read-only reviewer
+        roles = _compile.load_roles(root)
+        from harness.hosts import claude as _claude
+        _claude._validate_roles(meth, roles)
+        err = capsys.readouterr().err
+        assert "in_review" in err and "reviewer" in err and "cannot write" in err, \
+            f"no unwritable-transition warning emitted; stderr was: {err!r}"

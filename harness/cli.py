@@ -909,6 +909,8 @@ def cmd_selftest(args: argparse.Namespace) -> int:
     checks.append(("reviewer carries the delta-gate fix", "delta" in rev.lower()))
     checks.append(("leader carries the re-dispatch fix", "re-dispatch" in led.lower()))
     checks.append(("leader carries the bounded-gate fix", "wall-clock" in led.lower()))
+    checks.append(("leader carries the verdict-recording fix (issue #33)",
+                   "approved ->" in led.lower() and "Edit" in led.split("---")[1]))
     agent_files = [f for f in result.files if f.endswith(".md") and "/agents/" in f]
     checks.append(("every agent's frontmatter parses as YAML",
                    all(_frontmatter_ok(result.files[f])[0] for f in agent_files)))

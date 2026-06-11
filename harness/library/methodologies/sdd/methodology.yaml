@@ -27,6 +27,11 @@ gates:
   review_passed:
     class: per-type            # resolved from profile.gate_profiles[<type>].review_passed
 
+# `records:` names the role that WRITES the `to:` status into feature_list.json (defaults
+# to the driver). Every transition must have a writer (issue #33: in_review -> done had
+# none — the reviewer is read-only and the leader was forbidden). Read-only drivers
+# (human, reviewer) never touch state; the orchestrator RECORDS their outcome — it never
+# decides a transition, it transcribes the human's approval or the reviewer's verdict.
 phases:
   - state: pending
     driver: spec_author
@@ -37,16 +42,19 @@ phases:
     then:   halt
   - state: spec_ready
     driver: human
+    records: leader
     gate:   human_approved
     to:     in_progress
   - state: in_progress
     driver: implementer
+    records: leader
     reads:  ["specs/<feature>", "docs"]
     writes: ["source", "tests", "progress/impl_<feature>.md"]
     gate:   impl_complete
     to:     in_review
   - state: in_review
     driver: reviewer
+    records: leader
     reads:  ["specs/<feature>", "progress/impl_<feature>.md", "source", "CHECKPOINTS.md"]
     writes: ["progress/review_<feature>.md"]
     gate:   review_passed

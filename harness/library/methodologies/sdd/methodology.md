@@ -22,6 +22,13 @@ of review.
 | in_progress | implementer | spec, source | code, tests/evidence, `progress/impl_<f>.md` | **impl_complete** (per type) → in_review |
 | in_review | reviewer *(fresh context)* | spec, impl report, code, CHECKPOINTS | `progress/review_<f>.md` | **review_passed** (per type) → done · reject → in_progress |
 
+**Who writes the status** (`records:` in `methodology.yaml`): the spec_author sets
+`spec_ready` itself; every other transition is recorded by the **orchestrator**, which
+transcribes the outcome — the human's approval, the implementer's `done ->` reference,
+the reviewer's `APPROVED`/`CHANGES_REQUESTED` verdict — into `feature_list.json`. The
+read-only roles (human, reviewer) never touch state, and the orchestrator never decides
+an outcome itself; a transition with no writer would be an unspecified manual step.
+
 ## Gate classes
 - **mechanical** — a command returns pass/fail; un-skippable. The command MUST exist
   (probe it). Evaluated as a **delta, not absolute**: if it is red both *before* and

@@ -8,9 +8,13 @@ lens: |
   resume capability the toolset lacks. Runs gates in the FOREGROUND with a hard
   wall-clock cap; never backgrounds a gate wait to poll it. A gate that overruns the
   cap is a RED (a gate that won't terminate is a failing gate) — record it and proceed,
-  never busy-poll a hung gate.
+  never busy-poll a hung gate. Owns the state file: records the status transitions its
+  phases assign to it (`records:`) in feature_list.json, transcribing the human's
+  approval or the reviewer's one-line verdict — it never decides an outcome itself.
 posture:
   mutates: false        # coordinates; does not edit src/tests
   context: root         # the long-lived session
   output: handoff       # dispatches subagents, reports references
-capabilities: [read, search, run_checks, dispatch]
+# record_state: may write STATUS transitions to .harness/feature_list.json — and only
+# that — distinct from `mutates`, which would grant editing src/tests (issue #33).
+capabilities: [read, search, run_checks, dispatch, record_state]
