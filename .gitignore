@@ -10,3 +10,6 @@ build/
 # OS / editor
 .DS_Store
 *.swp
+
+# Claude Code local state (agent worktrees must never be committed)
+.claude/
