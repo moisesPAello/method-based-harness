@@ -71,6 +71,29 @@ def test_scaffold_detects_venv_and_pytest(repo: Path):
     assert 'command: "pytest -q"' in text
 
 
+def test_scaffold_detects_windows_venv_layout(repo: Path):
+    """Windows venvs put the interpreter at .venv/Scripts/python.exe; the probe must
+    find it or the profile pins 'python3', which typically doesn't exist on Windows."""
+    (repo / ".venv/Scripts").mkdir(parents=True)
+    (repo / ".venv/Scripts/python.exe").write_text("")
+    (repo / "tests").mkdir()
+    cli._scaffold_profile(repo, "sdd")
+    text = (repo / ".harness/profile.yaml").read_text()
+    assert 'interpreter: ".venv/Scripts/python.exe"' in text
+
+
+def test_scaffold_prefers_posix_venv_over_windows_when_both_exist(repo: Path):
+    """Tie-break is declaration order: a repo with both layouts (e.g. shared via WSL)
+    pins the POSIX path first."""
+    for cand in (".venv/bin/python", ".venv/Scripts/python.exe"):
+        p = repo / cand
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("")
+    cli._scaffold_profile(repo, "sdd")
+    text = (repo / ".harness/profile.yaml").read_text()
+    assert 'interpreter: ".venv/bin/python"' in text
+
+
 def test_scaffold_defaults_when_nothing_detected(repo: Path):
     cli._scaffold_profile(repo, "sdd")
     doc = yaml.safe_load((repo / ".harness/profile.yaml").read_text())

@@ -152,7 +152,10 @@ def _scaffold_profile(root: Path, methodology_id: str) -> str:
     Caller guarantees the file is absent — this never clobbers."""
     from . import compile as _compile
     interp = "python3"
-    for cand in (".venv/bin/python", "venv/bin/python"):
+    # POSIX and Windows venv layouts. Forward slashes on purpose: Path resolves them on
+    # Windows too, and the rendered gate commands / permission patterns stay one shape.
+    for cand in (".venv/bin/python", "venv/bin/python",
+                 ".venv/Scripts/python.exe", "venv/Scripts/python.exe"):
         if (root / cand).exists():
             interp = cand
             break
