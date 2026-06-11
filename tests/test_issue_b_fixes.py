@@ -135,6 +135,30 @@ class TestProfileSourceOfTruth:
         assert cli.cmd_init(_ns(from_profile=str(stripped))) == cli.EX_OK
         assert manifest.load_meta(repo)["methodology"] == cli._METHODOLOGY_DEFAULT
 
+    def test_profile_source_of_truth_is_echoed(
+        self, repo: Path, profile_path: Path, capsys
+    ) -> None:
+        """Issue #32: when the profile carries methodology/host, init echoes the resolved
+        values so the user knows setup advanced (not a silent no-op)."""
+        assert _init(profile_path) == cli.EX_OK
+        err = capsys.readouterr().err
+        assert "methodology=sdd" in err and "host=claude" in err
+        assert "from profile" in err
+
+    def test_no_echo_when_profile_lacks_the_keys(
+        self, repo: Path, profile_path: Path, tmp_path: Path, capsys
+    ) -> None:
+        """Issue #32: the echo is only relevant when the profile is the source of truth;
+        a profile without methodology/host defers to the flag and stays quiet about it."""
+        import yaml
+        data = cli._load_yaml(profile_path)
+        data.pop("methodology", None)
+        data.pop("host", None)
+        stripped = tmp_path / "stripped.yaml"
+        stripped.write_text(yaml.dump(data))
+        assert cli.cmd_init(_ns(from_profile=str(stripped))) == cli.EX_OK
+        assert "(from profile)" not in capsys.readouterr().err
+
     def test_upgrade_reads_methodology_from_profile(
         self, repo: Path, profile_path: Path
     ) -> None:
