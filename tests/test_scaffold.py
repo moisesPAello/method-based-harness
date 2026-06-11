@@ -50,6 +50,17 @@ def test_bare_init_scaffolds_then_gates_on_rerun(repo: Path):
     assert not (repo / ".claude/agents/leader.md").exists()  # nothing installed
 
 
+def test_first_run_hint_explains_the_validate_loop(repo: Path, capsys):
+    """Issue #31: the first-run hint must tell the user that re-running validates and
+    will list any TODO still empty — otherwise the (expected) second failure reads like
+    a regression."""
+    assert cli.cmd_init(_ns()) == cli.EX_FAIL  # bare init scaffolds + stops
+    err = capsys.readouterr().err
+    assert "re-run" in err and "harness init" in err
+    assert "validate" in err.lower(), \
+        f"first-run hint should say the re-run validates, got:\n{err}"
+
+
 def test_scaffold_detects_venv_and_pytest(repo: Path):
     (repo / ".venv/bin").mkdir(parents=True)
     (repo / ".venv/bin/python").write_text("")
