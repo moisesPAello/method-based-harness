@@ -41,11 +41,14 @@ harness init --methodology sdd --host claude
 
 ```
 init: no profile yet — wrote a starter .harness/profile.yaml
-      edit it (verify command, interpreter, gate_profiles), then re-run `harness init`.
+      Fill the TODOs (verify command, interpreter, gate_profiles), then re-run
+      `harness init` — it will validate and list any TODO still empty.
 ```
 
 Exit code is 1 — this is intentional: the scaffolded profile has empty gate slots
-(`[]`) that fail validation on re-run. It's a fill-in-the-blanks loop by design.
+(`[]`) that fail validation on re-run. It's a fill-in-the-blanks loop by design:
+re-running before the TODOs are filled doesn't install anything, it validates and
+names what's still missing.
 
 **What `.harness/profile.yaml` looks like after the bare run** (auto-detected a
 pytest repo):
@@ -58,6 +61,10 @@ pytest repo):
 project: myapp
 methodology: sdd
 host: claude
+
+# Optional backlog-edge tracker (default none = disk-only, no network/auth).
+# Opt in with `tracker: github-issues` to let the leader run `harness tracker sync`.
+# tracker: none
 
 # Interpreter the gate commands run under — pin it so they're deterministic.
 interpreter: "python3"
@@ -93,7 +100,7 @@ project: myapp
 methodology: sdd
 host: claude
 
-interpreter: "python3"      # pin to .venv/bin/python if you use a venv
+interpreter: "python3"      # pin your venv: .venv/bin/python (.venv/Scripts/python.exe on Windows)
 
 verify:
   command: "pytest -q"
@@ -133,6 +140,7 @@ harness init --methodology sdd --host claude
 **Actual stderr + stdout output:**
 
 ```
+init: using methodology=sdd host=claude (from profile)
 init: baseline-auditing the verify gate (cap 120s): pytest -q
 init: verify gate terminated, baseline green (exit 0) -> .harness/baseline.json
 .claude/agents/implementer.md
