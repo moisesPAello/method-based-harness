@@ -346,6 +346,14 @@ def _resolve_methodology_host(args: argparse.Namespace, profile: dict) -> tuple[
 
     methodology = prof_meth if prof_meth else flag_meth
     host = prof_host if prof_host else flag_host
+
+    # When the profile is the source of truth, echo the resolved values. Otherwise any
+    # flag the user passed defers silently and they can't tell setup advanced (#32). A
+    # flag that equals the CLI default is indistinguishable from an unset one (sentinel
+    # limitation), so we don't claim "deferred" — the resolved line removes the ambiguity.
+    if prof_meth or prof_host:
+        log(f"init: using methodology={methodology} host={host} (from profile)")
+
     return methodology, host
 
 
