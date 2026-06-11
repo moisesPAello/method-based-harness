@@ -28,6 +28,11 @@ capabilities: [read, search, run_checks]   # host-neutral; the renderer maps to 
 - `mutates: false` → the host gives a read-only toolset (no Edit/Write).
 - `context: fresh` → the host runs this role as an isolated subagent (independence).
 - `capabilities` → host-neutral verbs the renderer maps to concrete tools.
+  - `record_state` → may write STATUS transitions to `feature_list.json` — and only
+    that. On Claude it maps to `Edit` without `Write`: enough to flip a status, not
+    enough to author files. This is how the orchestrator records the transitions its
+    phases assign to it (`records:` in the methodology) without gaining a `mutates`
+    toolset (issue #33).
 
 ## The binding (methodology)
 

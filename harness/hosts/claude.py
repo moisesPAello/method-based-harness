@@ -31,9 +31,18 @@ def _tools(role: dict) -> str:
     base = ["Read", "Glob", "Grep", "Bash"]
     if role.get("posture", {}).get("mutates"):
         base += ["Write", "Edit"]
+    # record_state grants Edit WITHOUT Write: enough to flip a status in
+    # feature_list.json, not enough to author new files (issue #33).
+    elif "record_state" in role.get("capabilities", []):
+        base.append("Edit")
     if "dispatch" in role.get("capabilities", []):
         base.append("Agent")
     return ", ".join(base)
+
+
+def _can_write_state(role: dict) -> bool:
+    """Can this role write a status transition into feature_list.json?"""
+    return bool(role.get("posture", {}).get("mutates")) or "record_state" in role.get("capabilities", [])
 
 
 def _bullets(items, prefix="- ") -> str:
@@ -105,7 +114,8 @@ that won't terminate is a failing gate) — record the red and proceed, don't wa
 
 Act on the first feature that is not `done`/`blocked`, by status:
 - **pending** → dispatch ONE `spec_author`; on `spec_ready -> ...`, STOP and ask the human to approve.
-- **spec_ready + approved** → set `in_progress`, dispatch `implementer` (pass its `type`), then `reviewer`.
+- **spec_ready + approved** → set `in_progress`, dispatch `implementer` (pass its `type`); on its `done -> ...` reference, set `in_review` and dispatch `reviewer`.
+- **in_review verdict** → YOU record it in `feature_list.json`: `APPROVED -> ...` ⇒ set `done`; `CHANGES_REQUESTED -> ...` ⇒ set `in_progress` and re-dispatch `implementer` with the verdict file. You transcribe the reviewer's verdict — you never judge the work yourself.
 - **in_progress / in_review** → a driver stalled: **re-dispatch a FRESH one** (on-disk state loses nothing); never wait to resume.
 
 ## Escalation (the roster is a menu, not a cast)
@@ -116,7 +126,7 @@ Tell each subagent to write its product to a file and return ONE line
 (e.g. `done -> .harness/progress/impl_<feature>.md`). Act on references, not pasted content.
 
 ## You never
-- Edit `src/` or `tests/`.  - Mark a feature `done`.  - Skip the human approval gate.  - Accept a result with no file reference.
+- Edit `src/` or `tests/`.  - Decide a feature is done yourself: `done` is only ever transcribed from a reviewer's `APPROVED ->` verdict.  - Skip the human approval gate.  - Accept a result with no file reference.
 """
 
 
@@ -209,7 +219,10 @@ def _roster(meth: dict) -> list[str]:
 
 def _validate_roles(meth: dict, roles: dict) -> None:
     """Warn (stderr) about any role this host cannot render. Covers the phase drivers
-    AND the escalation menu, so a dangling reference in either is surfaced, not dropped."""
+    AND the escalation menu, so a dangling reference in either is surfaced, not dropped.
+    Also checks every phase's `to:` transition has a writer (issue #33): the recorder
+    (`records:`, defaulting to the driver) must be a role that can write state — else
+    the transition is an unspecified manual step in every run."""
     def renderable(name: str) -> bool:
         return name in _BUILDERS and name in roles
 
@@ -218,6 +231,13 @@ def _validate_roles(meth: dict, roles: dict) -> None:
         if drv != "human" and not renderable(drv):
             why = "no builder" if drv not in _BUILDERS else "no role lens"
             _warn(f"phase driver '{drv}' cannot render ({why}); the phase will have no agent file.")
+        recorder = ph.get("records", drv)
+        if recorder == "human":
+            _warn(f"phase '{ph['state']}' -> '{ph.get('to')}': recorder is 'human' — no agent "
+                  f"writes this transition; set `records:` to a state-writing role (e.g. the orchestrator).")
+        elif recorder not in roles or not _can_write_state(roles[recorder]):
+            why = "unknown role" if recorder not in roles else "role cannot write state (needs posture.mutates or the record_state capability)"
+            _warn(f"phase '{ph['state']}' -> '{ph.get('to')}': recorder '{recorder}' cannot write the transition ({why}).")
 
     for tier, names in (meth.get("escalation") or {}).items():
         for name in names:
