@@ -265,3 +265,44 @@ Run metrics (static): 17 new assertions, 78 total passing. Friction count: 3 new
 (#12 Stop hook discoverability, #13 reviewer placeholder, #14 methodology.yaml absent).
 Highest-leverage: **#13** — a live reviewer would see `'the docs/parity check'` and be unable
 to run it, producing confusing output on every fresh install that lacks `docs.sync_check`.
+
+## 2026-06-11 — Run 3: first live multi-agent run incl. the reject path (issue #33). Grade: A− / loop holds, one ownership gap
+
+First **live** orchestrated run on CLI-generated output — the validation issue #6's static
+pass explicitly deferred. A throwaway pytest repo (`stringkit`) was installed via `harness
+init` (auto-detected `.venv/bin/python` + `pytest -q`; baseline audited green; `doctor: ok`)
+and **three features** were driven end-to-end by a session acting as `leader`, dispatching
+real `spec_author` / `implementer` / `reviewer` subagents with the compiled role contracts.
+
+### What held, live
+- Full flow ×3: `pending → spec_ready → ⏸ HUMAN → in_progress → in_review → done`.
+- spec_author surfaced real `[NEEDS CLARIFICATION]` markers (2, then 3) instead of guessing;
+  the human resolved them in the spec files; none survived into `in_progress`.
+- On-disk handoff: every subagent returned a one-line reference; no pasted content.
+- **The reject path bit (the load-bearing test).** A feature was seeded with correct code but
+  a test file covering only R1/R2 while the impl report *falsely claimed* R3/R4 coverage and
+  a task was falsely `[x]` — with the mechanical gate green. A fresh reviewer **rejected**
+  it (`CHANGES_REQUESTED`), citing the missing asserting tests and the false claims, and
+  correctly noted the implementation itself was fine. Then `on_reject → in_progress → fix →
+  fresh re-review → APPROVED`. The reviewer did not rubber-stamp a green suite.
+
+### New finding
+
+15. **`in_review → done` had no owner.** (issue #33) `methodology.yaml` declared
+    `driver: reviewer, to: done`, but the reviewer renders read-only (no Write/Edit; "never
+    fixes") and `leader.md` forbade "Mark a feature `done`" — so the terminal status write
+    was an unspecified manual step. Both live reviewers independently refused to touch
+    status ("Feature status NOT changed by reviewer").
+    → Fix (applied): phases declare **`records:`** — who writes the `to:` status (defaults
+    to the driver); SDD assigns the leader as recorder for every read-only-driver phase. The
+    leader gains a `record_state` capability (maps to `Edit` only — flips a status, can't
+    author files) and its rule is rescoped from "never mark done" to "never DECIDE done":
+    it transcribes the reviewer's `APPROVED ->` / `CHANGES_REQUESTED ->` verdict. The
+    renderer now warns at compile time about any transition whose recorder cannot write
+    state, and selftest pins the verdict-recording fix.
+
+Run metrics: 2 spec_authors (~20k/~24k tok), 3 implementers (~19k/~19k/~17k tok), 4 reviewers
+(1 reject + 3 approve, ~19–24k tok each), 2 human gates exercised, 1 seeded defect caught,
+0 incorrect outcomes shipped. Highest-leverage observation: independent re-verification
+(reviewer re-reading the actual test file instead of the impl report) is what caught the
+false traceability claim — the property the whole design bets on, now seen working live.
