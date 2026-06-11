@@ -306,3 +306,59 @@ Run metrics: 2 spec_authors (~20k/~24k tok), 3 implementers (~19k/~19k/~17k tok)
 0 incorrect outcomes shipped. Highest-leverage observation: independent re-verification
 (reviewer re-reading the actual test file instead of the impl report) is what caught the
 false traceability claim — the property the whole design bets on, now seen working live.
+
+## 2026-06-11 — Run 4: upgrade propagation live + model-sensitivity of the gates. Grade: A− / gates carry weak models, spec authoring doesn't
+
+Same demo repo as run 3, two questions: does `upgrade` propagate a real library fix into a
+live install, and do the gates still hold when the subagents run on the **cheapest model**
+(claude-haiku) instead of the strongest? Two more features (`wrap`, `center`) driven
+end-to-end with all three roles on haiku.
+
+### Upgrade propagation (the #33 fix, against a real install)
+`upgrade --dry-run` predicted exactly `update=4` (leader.md, settings.json,
+methodology.md/.yaml); the real run matched; all local state (5 features, specs, progress)
+byte-preserved. The re-rendered leader carries the verdict-recording instructions and the
+`Edit` tool. The propagation contract held against a live repo, not just the fixture.
+
+### All-haiku loop (`wrap`)
+- **spec_author (haiku, ~21k tok):** produced the spec and surfaced one real
+  `[NEEDS CLARIFICATION]` marker — but also emitted one requirement (R10) that
+  **contradicted** another (R5's greedy packing), dropped the EARS SHALL-patterns, and
+  violated the one-line handoff protocol (pasted its self-check into the return).
+- **The human gate caught R10.** Struck at approval, references scrubbed from design/tasks.
+  A weaker spec_author makes the approval gate MORE load-bearing — the design degrades
+  gracefully rather than unsafely.
+- **implementer (haiku, ~24k tok):** correct — survived independent adversarial probes
+  (greedy arithmetic, oversized words, whitespace collapse, width validation).
+- **reviewer (haiku, ~29k tok):** APPROVED, and the approval was warranted (leader
+  spot-checked the implementation before recording the verdict).
+
+### Reviewer skepticism on haiku (`center`) — the sharpest seeded defect yet
+Seeded: code violating R4 (odd padding placed LEFT; spec demands RIGHT) with a green test
+**asserting the buggy value** — catching it requires checking the assertion's expected
+value against the requirement's formula, not test existence (run 3's defect was missing
+tests; this one is a lying test). **The haiku reviewer caught it**: worked
+floor(3/2)/ceil(3/2) by hand, rejected with the exact line, and flagged BOTH the code and
+the mirrored assertion. Then reject → haiku fix (~16k tok, 22s) → haiku re-review →
+APPROVED. Full reject loop on the cheapest model.
+
+### Findings
+
+16. **The gates carry weak models; the spec does not.** Both seeded defects (runs 3+4) were
+    caught because `review_passed` conditions are explicit verification procedures
+    ("the test actually asserts the behavior"), not vibes — the method encoded between
+    turns compensates for model capability. But spec quality tracked the model: haiku's
+    spec needed human repair (a contradictory requirement), the stronger model's needed
+    only marker resolution. Operating guidance: cheap models for implementer/reviewer;
+    spend capability (or human attention) at the spec gate — sharpens finding #4
+    ("spec quality = acceptance quality").
+
+17. **The one-line handoff protocol is advisory; the files are the contract.** Haiku
+    ignored "return EXACTLY one line" about half the time. Harmless in practice: the
+    on-disk product and the embedded file reference were always present, so the
+    anti-telephone design held anyway. Worth knowing when budgeting orchestrator context.
+
+Run metrics: 1 haiku spec_author (~21k), 2 haiku implementers (~24k/~16k), 3 haiku
+reviewers (~29k/~20k/~19k; 1 reject + 2 approve), 1 contradictory spec requirement caught
+at the human gate, 1 seeded lying-test defect caught by the cheapest reviewer, 0 incorrect
+outcomes shipped. Full feature cycle on haiku: ~70–90k subagent tokens.
