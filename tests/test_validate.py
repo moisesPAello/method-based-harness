@@ -53,7 +53,21 @@ def test_gate_profile_missing_per_type_slot_is_error(lib_root, profile_path):
     p = _example(profile_path)
     p["gate_profiles"]["default"].pop("review_passed", None)
     errs, _ = validate.validate_profile(p, _sdd(lib_root))
-    assert any("review_passed" in e for e in errs)
+    assert any("review_passed" in e and "missing" in e for e in errs)
+
+
+def test_gate_profile_empty_slot_is_not_reported_as_missing(lib_root, profile_path):
+    """Issue #30: the scaffold writes the slot present-but-empty (`review_passed: []`).
+    Validation must flag it as an unfilled TODO, NOT as 'missing' — otherwise the tool
+    contradicts the file it just wrote."""
+    p = _example(profile_path)
+    p["gate_profiles"]["default"]["review_passed"] = []
+    errs, _ = validate.validate_profile(p, _sdd(lib_root))
+    slot_errs = [e for e in errs if "review_passed" in e]
+    assert slot_errs, "an empty slot should still be an error"
+    assert all("missing" not in e for e in slot_errs), \
+        f"a present-but-empty slot must not read as 'missing': {slot_errs}"
+    assert any("no conditions" in e for e in slot_errs)
 
 
 def test_malformed_constitution_is_error(lib_root, profile_path):

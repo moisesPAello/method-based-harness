@@ -44,8 +44,14 @@ def validate_profile(profile, meth: dict, features: list | None = None) -> tuple
                 errors.append(f"`gate_profiles.{name}` must be a mapping")
                 continue
             for slot in slots:
-                if not prof.get(slot):
+                if slot not in prof:
                     errors.append(f"`gate_profiles.{name}` is missing `{slot}`")
+                elif not prof.get(slot):
+                    # Present-but-empty is what the scaffold writes (`{slot}: []  # TODO`);
+                    # don't call it "missing" — that contradicts the file we just wrote.
+                    errors.append(f"`gate_profiles.{name}`: `{slot}` has no conditions — "
+                                  f"fill in the TODO (see harness/library/examples/"
+                                  f"sella-cruce/profile.yaml)")
 
     # tracker — optional backlog-edge adapter; defaults to `none`. If set, must be a
     # known tracker. `none` keeps the harness byte-for-byte unchanged (no network/auth).
