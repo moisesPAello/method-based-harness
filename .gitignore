@@ -6,6 +6,8 @@ venv/
 *.egg-info/
 dist/
 build/
+.pytest_cache/
+.benchmarks/
 
 # OS / editor
 .DS_Store
