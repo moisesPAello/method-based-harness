@@ -367,7 +367,8 @@ def cmd_init(args: argparse.Namespace) -> int:
         if not prof_path.is_file():
             rel = _scaffold_profile(root, args.methodology)
             log(f"init: no profile yet — wrote a starter {rel}")
-            log("      edit it (verify command, interpreter, gate_profiles), then re-run `harness init`.")
+            log("      Fill the TODOs (verify command, interpreter, gate_profiles), then re-run")
+            log("      `harness init` — it will validate and list any TODO still empty.")
             return EX_FAIL
     try:
         profile = _load_yaml(prof_path)
